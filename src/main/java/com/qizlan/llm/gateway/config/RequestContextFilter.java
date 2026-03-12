@@ -25,6 +25,9 @@ public class RequestContextFilter implements WebFilter {
         );
         requestContextService.set(exchange, context);
         exchange.getResponse().getHeaders().set("X-Correlation-Id", context.correlationId());
-        return chain.filter(exchange);
+        exchange.getResponse().getHeaders().set("X-Trace-Id", context.traceId());
+        exchange.getResponse().getHeaders().set("X-Span-Id", context.spanId());
+        return chain.filter(exchange)
+                .contextWrite(ctx -> ctx.put(RequestContextService.REACTOR_CONTEXT_KEY, context));
     }
 }

@@ -8,10 +8,13 @@ import org.springframework.web.server.ServerWebExchange;
 public class RequestContextService {
 
     public static final String EXCHANGE_ATTRIBUTE = RequestContext.class.getName();
+    public static final String REACTOR_CONTEXT_KEY = RequestContext.class.getName() + ".reactor";
 
     public RequestContext create(String correlationId, String actorType, String actorId) {
         return new RequestContext(
                 correlationId == null || correlationId.isBlank() ? UUID.randomUUID().toString().replace("-", "") : correlationId,
+                UUID.randomUUID().toString().replace("-", ""),
+                UUID.randomUUID().toString().replace("-", "").substring(0, 16),
                 actorType == null || actorType.isBlank() ? "system" : actorType,
                 actorId == null || actorId.isBlank() ? "control-plane" : actorId
         );
@@ -34,6 +37,6 @@ public class RequestContextService {
         if (!"system".equals(context.actorType()) || !"control-plane".equals(context.actorId())) {
             return context;
         }
-        return new RequestContext(context.correlationId(), actorType, actorId);
+        return new RequestContext(context.correlationId(), context.traceId(), context.spanId(), actorType, actorId);
     }
 }

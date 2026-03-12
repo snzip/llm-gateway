@@ -85,6 +85,18 @@ public class RequestLogEntity {
     @Lob
     private String routingTrace;
 
+    private String correlationId;
+
+    private String traceId;
+
+    private String spanId;
+
+    @Lob
+    private String requestPayload;
+
+    @Lob
+    private String responsePayload;
+
     @Column(nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -115,7 +127,12 @@ public class RequestLogEntity {
             String apiKeyId,
             String organizationId,
             String projectId,
-            String routingTrace
+            String routingTrace,
+            String correlationId,
+            String traceId,
+            String spanId,
+            String requestPayload,
+            String responsePayload
     ) {
         this.requestId = requestId;
         this.path = path;
@@ -141,6 +158,11 @@ public class RequestLogEntity {
         this.organizationId = organizationId;
         this.projectId = projectId;
         this.routingTrace = routingTrace;
+        this.correlationId = correlationId;
+        this.traceId = traceId;
+        this.spanId = spanId;
+        this.requestPayload = requestPayload;
+        this.responsePayload = responsePayload;
     }
 
     @PrePersist
@@ -253,5 +275,25 @@ public class RequestLogEntity {
 
     public String getRoutingTrace() {
         return routingTrace;
+    }
+
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public String getSpanId() {
+        return spanId;
+    }
+
+    public String getRequestPayload() {
+        return requestPayload;
+    }
+
+    public String getResponsePayload() {
+        return responsePayload;
     }
 }

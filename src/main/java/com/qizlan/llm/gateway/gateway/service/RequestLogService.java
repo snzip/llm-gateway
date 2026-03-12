@@ -1,7 +1,9 @@
 package com.qizlan.llm.gateway.gateway.service;
 
+import io.micrometer.tracing.Tracer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionResponse;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.RequestLogEntity;
@@ -19,12 +21,18 @@ public class RequestLogService {
     private final ApiKeyRepository apiKeyRepository;
     private final ObjectMapper objectMapper;
     private final GatewayMetricsService gatewayMetricsService;
+    private final RequestLogPayloadSanitizer payloadSanitizer;
+    private final GatewayProperties properties;
+    private final Tracer tracer;
 
-    public RequestLogService(RequestLogRepository requestLogRepository, ApiKeyRepository apiKeyRepository, ObjectMapper objectMapper, GatewayMetricsService gatewayMetricsService) {
+    public RequestLogService(RequestLogRepository requestLogRepository, ApiKeyRepository apiKeyRepository, ObjectMapper objectMapper, GatewayMetricsService gatewayMetricsService, RequestLogPayloadSanitizer payloadSanitizer, GatewayProperties properties, Tracer tracer) {
         this.requestLogRepository = requestLogRepository;
         this.apiKeyRepository = apiKeyRepository;
         this.objectMapper = objectMapper;
         this.gatewayMetricsService = gatewayMetricsService;
+        this.payloadSanitizer = payloadSanitizer;
+        this.properties = properties;
+        this.tracer = tracer;
     }
 
     public void logGatewayRequest(
@@ -35,8 +43,12 @@ public class RequestLogService {
             ChatCompletionResponse.Usage usage,
             int httpStatus,
             long latencyMs,
-            List<RoutingAttempt> routingAttempts
+            List<RoutingAttempt> routingAttempts,
+            Object requestPayload,
+            Object responsePayload,
+            RequestContext requestContext
     ) {
+        boolean sampled = shouldSample();
         int promptTokens = usage == null ? 0 : usage.prompt_tokens();
         int completionTokens = usage == null ? 0 : usage.completion_tokens();
         int totalTokens = usage == null ? 0 : usage.total_tokens();
@@ -66,7 +78,12 @@ public class RequestLogService {
                 apiKey == null ? null : apiKey.getId(),
                 apiKey == null || apiKey.getOrganization() == null ? null : apiKey.getOrganization().getId(),
                 apiKey == null || apiKey.getProject() == null ? null : apiKey.getProject().getId(),
-                writeTrace(routingAttempts)
+                writeTrace(routingAttempts),
+                requestContext == null ? "" : requestContext.correlationId(),
+                traceId(requestContext),
+                spanId(requestContext),
+                sampledPayload(requestPayload, sampled),
+                sampledResponse(responsePayload, sampled)
         );
         requestLogRepository.save(log);
         gatewayMetricsService.recordGatewayRequest(
@@ -87,7 +104,8 @@ public class RequestLogService {
         }
     }
 
-    public void logImageRequest(String path, String requestedModel, String providerId, ApiKeyEntity apiKey, int httpStatus, long latencyMs, List<RoutingAttempt> routingAttempts) {
+    public void logImageRequest(String path, String requestedModel, String providerId, ApiKeyEntity apiKey, int httpStatus, long latencyMs, List<RoutingAttempt> routingAttempts, Object requestPayload, Object responsePayload, RequestContext requestContext) {
+        boolean sampled = shouldSample();
         long estimatedCost = estimateImageCostMicrosUsd(requestedModel);
         RequestLogEntity log = new RequestLogEntity(
                 nextRequestId(),
@@ -113,7 +131,12 @@ public class RequestLogService {
                 apiKey == null ? null : apiKey.getId(),
                 apiKey == null || apiKey.getOrganization() == null ? null : apiKey.getOrganization().getId(),
                 apiKey == null || apiKey.getProject() == null ? null : apiKey.getProject().getId(),
-                writeTrace(routingAttempts)
+                writeTrace(routingAttempts),
+                requestContext == null ? "" : requestContext.correlationId(),
+                traceId(requestContext),
+                spanId(requestContext),
+                sampledPayload(requestPayload, sampled),
+                sampledResponse(responsePayload, sampled)
         );
         requestLogRepository.save(log);
         gatewayMetricsService.recordGatewayRequest(path, providerId, requestedModel, httpStatus, latencyMs, 0, 0, 0, estimatedCost, false);
@@ -127,8 +150,11 @@ public class RequestLogService {
             long httpStatus,
             long latencyMs,
             long timeToFirstTokenMs,
-            List<RoutingAttempt> routingAttempts
+            List<RoutingAttempt> routingAttempts,
+            Object requestPayload,
+            RequestContext requestContext
     ) {
+        boolean sampled = shouldSample();
         RequestLogEntity log = new RequestLogEntity(
                 nextRequestId(),
                 path,
@@ -153,13 +179,19 @@ public class RequestLogService {
                 apiKey == null ? null : apiKey.getId(),
                 apiKey == null || apiKey.getOrganization() == null ? null : apiKey.getOrganization().getId(),
                 apiKey == null || apiKey.getProject() == null ? null : apiKey.getProject().getId(),
-                writeTrace(routingAttempts)
+                writeTrace(routingAttempts),
+                requestContext == null ? "" : requestContext.correlationId(),
+                traceId(requestContext),
+                spanId(requestContext),
+                sampledPayload(requestPayload, sampled),
+                ""
         );
         requestLogRepository.save(log);
         gatewayMetricsService.recordGatewayRequest(path, providerId, requestedModel, (int) httpStatus, latencyMs, 0, 0, 0, 0, true);
     }
 
-    public void logGatewayFailure(String path, String requestedModel, ApiKeyEntity apiKey, int httpStatus, long latencyMs, List<RoutingAttempt> routingAttempts) {
+    public void logGatewayFailure(String path, String requestedModel, ApiKeyEntity apiKey, int httpStatus, long latencyMs, List<RoutingAttempt> routingAttempts, Object requestPayload, RequestContext requestContext) {
+        boolean sampled = shouldSample();
         RequestLogEntity log = new RequestLogEntity(
                 nextRequestId(),
                 path,
@@ -184,7 +216,12 @@ public class RequestLogService {
                 apiKey == null ? null : apiKey.getId(),
                 apiKey == null || apiKey.getOrganization() == null ? null : apiKey.getOrganization().getId(),
                 apiKey == null || apiKey.getProject() == null ? null : apiKey.getProject().getId(),
-                writeTrace(routingAttempts)
+                writeTrace(routingAttempts),
+                requestContext == null ? "" : requestContext.correlationId(),
+                traceId(requestContext),
+                spanId(requestContext),
+                sampledPayload(requestPayload, sampled),
+                ""
         );
         requestLogRepository.save(log);
         gatewayMetricsService.recordGatewayRequest(
@@ -246,6 +283,45 @@ public class RequestLogService {
 
     private String nextRequestId() {
         return "req_" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String sampledPayload(Object payload, boolean sampled) {
+        if (!properties.requestLog().payloadSamplingEnabled() || !sampled) {
+            return "";
+        }
+        return payloadSanitizer.sanitize(payload);
+    }
+
+    private String sampledResponse(Object payload, boolean sampled) {
+        if (!properties.requestLog().payloadSamplingEnabled() || !properties.requestLog().storeResponsePayload() || !sampled) {
+            return "";
+        }
+        return payloadSanitizer.sanitize(payload);
+    }
+
+    private boolean shouldSample() {
+        double rate = properties.requestLog().sampleRate();
+        if (rate >= 1.0d) {
+            return true;
+        }
+        if (rate <= 0.0d) {
+            return false;
+        }
+        return Math.random() <= rate;
+    }
+
+    private String traceId(RequestContext requestContext) {
+        if (tracer.currentSpan() != null) {
+            return tracer.currentSpan().context().traceId();
+        }
+        return requestContext == null ? "" : requestContext.traceId();
+    }
+
+    private String spanId(RequestContext requestContext) {
+        if (tracer.currentSpan() != null) {
+            return tracer.currentSpan().context().spanId();
+        }
+        return requestContext == null ? "" : requestContext.spanId();
     }
 
     private record CostBreakdown(long promptMicrosUsd, long completionMicrosUsd, long totalMicrosUsd) {

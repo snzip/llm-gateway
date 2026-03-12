@@ -35,3 +35,24 @@ llm:
     sync:
       enabled: false
       fixed-delay-millis: 3600000
+    request-log:
+      payload-sampling-enabled: true
+      sample-rate: 1.0
+      max-body-chars: 2048
+      store-response-payload: true
+      redacted-fields:
+        - authorization
+        - api_key
+        - apiKey
+        - x-api-key
+        - token
+        - access_token
+        - refresh_token
+        - client_secret
+    mcp:
+      tool-scopes:
+        chat: mcp.tool.chat
+        list-models: mcp.tool.list-models
+        generate-image: mcp.tool.generate-image
+        generate-nano-banana: mcp.tool.generate-nano-banana
+        list-image-models: mcp.tool.list-image-models

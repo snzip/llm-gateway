@@ -5,6 +5,7 @@ import com.qizlan.llm.gateway.gateway.service.McpSessionService;
 import com.qizlan.llm.gateway.gateway.service.OAuthService;
 import com.qizlan.llm.gateway.gateway.service.ProviderProbeService;
 import com.qizlan.llm.gateway.gateway.service.RequestContextService;
+import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.OAuthAccessTokenEntity;
 import com.qizlan.llm.gateway.persistence.entity.OAuthAuthorizationCodeEntity;
@@ -34,19 +35,22 @@ public class McpController {
     private final McpSessionService mcpSessionService;
     private final OAuthService oAuthService;
     private final RequestContextService requestContextService;
+    private final GatewayProperties properties;
 
     public McpController(
             ProviderProbeService providerProbeService,
             McpService mcpService,
             McpSessionService mcpSessionService,
             OAuthService oAuthService,
-            RequestContextService requestContextService
+            RequestContextService requestContextService,
+            GatewayProperties properties
     ) {
         this.providerProbeService = providerProbeService;
         this.mcpService = mcpService;
         this.mcpSessionService = mcpSessionService;
         this.oAuthService = oAuthService;
         this.requestContextService = requestContextService;
+        this.properties = properties;
     }
 
     @PostMapping("/internal/providers/probe")
@@ -184,7 +188,8 @@ public class McpController {
         String method = request.getOrDefault("method", "").toString();
         ApiKeyEntity apiKey = exchange.getAttribute("apiKey");
         if ("tools/call".equals(method)) {
-            OAuthAccessTokenEntity token = requireOAuthAccessToken(exchange);
+            String toolName = request.getOrDefault("name", "").toString();
+            OAuthAccessTokenEntity token = requireOAuthAccessToken(exchange, toolScope(toolName));
             requestContextService.set(exchange, requestContextService.withDefaultActor(requestContextService.get(exchange), "oauth_client", token.getClientId()));
         }
         return switch (method) {
@@ -201,16 +206,24 @@ public class McpController {
         };
     }
 
-    private OAuthAccessTokenEntity requireOAuthAccessToken(ServerWebExchange exchange) {
+    private OAuthAccessTokenEntity requireOAuthAccessToken(ServerWebExchange exchange, String requiredScope) {
         String header = exchange.getRequest().getHeaders().getFirst("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing OAuth bearer token");
         }
         try {
-            return oAuthService.validateAccessToken(header.substring("Bearer ".length()).trim(), "mcp");
+            return oAuthService.validateAccessToken(header.substring("Bearer ".length()).trim(), requiredScope);
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, ex.getMessage());
         }
+    }
+
+    private String toolScope(String toolName) {
+        if (toolName == null || toolName.isBlank()) {
+            return "mcp";
+        }
+        String mapped = properties.mcp().toolScopes().get(toolName);
+        return mapped == null || mapped.isBlank() ? "mcp" : mapped;
     }
 
     private <T> Mono<T> blocking(java.util.concurrent.Callable<T> action) {

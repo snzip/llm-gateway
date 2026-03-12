@@ -32,6 +32,7 @@ public class ModelSyncService {
     private final ModelSyncHistoryRepository historyRepository;
     private final GatewayProperties properties;
     private final ObjectMapper objectMapper;
+    private final RoutingService routingService;
 
     public ModelSyncService(
             List<ProviderAdapter> providerAdapters,
@@ -40,7 +41,8 @@ public class ModelSyncService {
             ModelProviderMappingRepository mappingRepository,
             ModelSyncHistoryRepository historyRepository,
             GatewayProperties properties,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RoutingService routingService
     ) {
         this.providerAdapters = providerAdapters;
         this.providerRepository = providerRepository;
@@ -49,6 +51,7 @@ public class ModelSyncService {
         this.historyRepository = historyRepository;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.routingService = routingService;
     }
 
     @Scheduled(fixedDelayString = "${llm.gateway.sync.fixed-delay-millis:3600000}")
@@ -173,6 +176,7 @@ public class ModelSyncService {
                 }
             }
             mappingRepository.save(mapping);
+            routingService.evictModel(model.getId());
         }
         int archivedMappings = archiveMissingMappings(providerId, discoveredModelIds, changes, conflictPolicy);
         historyRepository.save(new ModelSyncHistoryEntity(
@@ -226,6 +230,7 @@ public class ModelSyncService {
                         true
                 );
                 mappingRepository.save(mapping);
+                routingService.evictModel(mapping.getModel().getId());
                 recordDiff(changes, "mapping", providerId + ":" + mapping.getModel().getId(), beforeMapping, mappingSnapshot(mapping));
                 if (!shouldBeActive) {
                     archived++;

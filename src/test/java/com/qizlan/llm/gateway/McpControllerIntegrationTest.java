@@ -34,7 +34,7 @@ class McpControllerIntegrationTest extends AbstractIntegrationTest {
         EntityExchangeResult<byte[]> tokenResult = webTestClient.post().uri("/oauth/token")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"grant_type":"authorization_code","code":"%s","scope":"mcp tools"}
+                        {"grant_type":"authorization_code","code":"%s","scope":"mcp mcp.tool.chat"}
                         """.formatted(code))
                 .exchange()
                 .expectStatus().isOk()
@@ -96,10 +96,30 @@ class McpControllerIntegrationTest extends AbstractIntegrationTest {
                 .expectBody()
                 .jsonPath("$.result.choices[0].message.content").isEqualTo("MCP says hello");
 
+        EntityExchangeResult<byte[]> narrowScopeTokenResult = webTestClient.post().uri("/oauth/token")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"grant_type":"client_credentials","client_id":"%s","client_secret":"%s","scope":"mcp"}
+                        """.formatted(clientId, clientSecret))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult();
+        String narrowAccessToken = read(narrowScopeTokenResult, "/access_token");
+
+        webTestClient.post().uri("/mcp")
+                .header("Authorization", "Bearer " + narrowAccessToken)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"method":"tools/call","name":"chat","arguments":{"model":"gpt-4o","prompt":"hello from mcp"}}
+                        """)
+                .exchange()
+                .expectStatus().isUnauthorized();
+
         EntityExchangeResult<byte[]> refreshResult = webTestClient.post().uri("/oauth/token")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"grant_type":"refresh_token","client_id":"%s","client_secret":"%s","refresh_token":"%s","scope":"mcp tools"}
+                        {"grant_type":"refresh_token","client_id":"%s","client_secret":"%s","refresh_token":"%s","scope":"mcp mcp.tool.chat"}
                         """.formatted(clientId, clientSecret, refreshToken))
                 .exchange()
                 .expectStatus().isOk()

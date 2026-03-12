@@ -65,3 +65,24 @@ llm:
     probe:
       enabled: false
       fixed-delay-millis: 300000
+    request-log:
+      payload-sampling-enabled: ${LLM_GATEWAY_REQUEST_LOG_PAYLOAD_SAMPLING_ENABLED:false}
+      sample-rate: ${LLM_GATEWAY_REQUEST_LOG_SAMPLE_RATE:0.1}
+      max-body-chars: ${LLM_GATEWAY_REQUEST_LOG_MAX_BODY_CHARS:2048}
+      store-response-payload: ${LLM_GATEWAY_REQUEST_LOG_STORE_RESPONSE_PAYLOAD:false}
+      redacted-fields:
+        - authorization
+        - api_key
+        - apiKey
+        - x-api-key
+        - token
+        - access_token
+        - refresh_token
+        - client_secret
+    mcp:
+      tool-scopes:
+        chat: ${LLM_GATEWAY_MCP_SCOPE_CHAT:mcp.tool.chat}
+        list-models: ${LLM_GATEWAY_MCP_SCOPE_LIST_MODELS:mcp.tool.list-models}
+        generate-image: ${LLM_GATEWAY_MCP_SCOPE_GENERATE_IMAGE:mcp.tool.generate-image}
+        generate-nano-banana: ${LLM_GATEWAY_MCP_SCOPE_GENERATE_NANO_BANANA:mcp.tool.generate-nano-banana}
+        list-image-models: ${LLM_GATEWAY_MCP_SCOPE_LIST_IMAGE_MODELS:mcp.tool.list-image-models}

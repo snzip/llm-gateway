@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qizlan.llm.gateway.gateway.service.ProviderHealthService;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import okhttp3.mockwebserver.Dispatcher;
@@ -60,7 +61,20 @@ abstract class AbstractIntegrationTest {
         OPENAI_RESPONSES.clear();
         ANTHROPIC_RESPONSES.clear();
         GOOGLE_RESPONSES.clear();
+        drainRequests(OPENAI);
+        drainRequests(ANTHROPIC);
+        drainRequests(GOOGLE);
         ((java.util.Map<?, ?>) ReflectionTestUtils.getField(providerHealthService, "states")).clear();
+    }
+
+    private void drainRequests(MockWebServer server) {
+        try {
+            while (server.takeRequest(10, TimeUnit.MILLISECONDS) != null) {
+                // drain recorded requests to keep test assertions isolated
+            }
+        } catch (InterruptedException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     protected String createOrganization(String name) {

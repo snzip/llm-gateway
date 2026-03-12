@@ -5,20 +5,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
 import com.qizlan.llm.gateway.gateway.dto.ImageDtos;
+import io.micrometer.tracing.Tracer;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Component
 public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
 
     private final GatewayProperties.Endpoint endpoint;
 
-    public AnthropicProviderAdapter(GatewayProperties properties, ObjectMapper objectMapper) {
-        super(properties.providers().anthropic().baseUrl(), objectMapper);
+    public AnthropicProviderAdapter(GatewayProperties properties, ObjectMapper objectMapper, Tracer tracer) {
+        super(properties.providers().anthropic().baseUrl(), objectMapper, tracer);
         this.endpoint = properties.providers().anthropic();
     }
 
@@ -51,6 +54,28 @@ public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
         } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
+    }
+
+    @Override
+    public Mono<ProviderChatResult> completeAsync(ChatCompletionRequest request, String providerModel) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", providerModel);
+        body.put("messages", toMessagePayload(request.messages()));
+        body.put("max_tokens", request.max_tokens() == null ? 512 : request.max_tokens());
+        body.put("stream", false);
+        if (request.temperature() != null) {
+            body.put("temperature", request.temperature());
+        }
+        return postJsonAsync("/v1/messages", Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"), body)
+                .map(root -> new ProviderChatResult(
+                        providerId(),
+                        providerModel,
+                        readText(root, "/content/0/text"),
+                        false,
+                        readInt(root, "/usage/input_tokens"),
+                        readInt(root, "/usage/output_tokens"),
+                        sum(readInt(root, "/usage/input_tokens"), readInt(root, "/usage/output_tokens"))
+                ));
     }
 
     @Override
@@ -88,5 +113,18 @@ public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
             body.put("temperature", request.temperature());
         }
         streamAnthropicSse("/v1/messages", Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"), body, consumer, providerId());
+    }
+
+    @Override
+    public Flux<ProviderStreamEvent> streamChatAsync(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", providerModel);
+        body.put("messages", toMessagePayload(request.messages()));
+        body.put("max_tokens", request.max_tokens() == null ? 512 : request.max_tokens());
+        body.put("stream", true);
+        if (request.temperature() != null) {
+            body.put("temperature", request.temperature());
+        }
+        return streamAnthropicSseAsync("/v1/messages", Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"), body, providerId());
     }
 }

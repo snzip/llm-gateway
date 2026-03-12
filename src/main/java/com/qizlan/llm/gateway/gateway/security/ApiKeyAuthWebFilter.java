@@ -2,7 +2,6 @@ package com.qizlan.llm.gateway.gateway.security;
 
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
-import com.qizlan.llm.gateway.persistence.repository.ApiKeyRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -16,24 +15,24 @@ public class ApiKeyAuthWebFilter implements WebFilter {
 
     private static final String API_KEY_ATTR = "apiKey";
 
-    private final ApiKeyRepository apiKeyRepository;
     private final GatewayProperties properties;
     private final ApiKeyTokenService tokenService;
     private final IamRuleService iamRuleService;
     private final ApiKeyRateLimitService apiKeyRateLimitService;
+    private final ApiKeyLookupCache apiKeyLookupCache;
 
     public ApiKeyAuthWebFilter(
-            ApiKeyRepository apiKeyRepository,
             GatewayProperties properties,
             ApiKeyTokenService tokenService,
             IamRuleService iamRuleService,
-            ApiKeyRateLimitService apiKeyRateLimitService
+            ApiKeyRateLimitService apiKeyRateLimitService,
+            ApiKeyLookupCache apiKeyLookupCache
     ) {
-        this.apiKeyRepository = apiKeyRepository;
         this.properties = properties;
         this.tokenService = tokenService;
         this.iamRuleService = iamRuleService;
         this.apiKeyRateLimitService = apiKeyRateLimitService;
+        this.apiKeyLookupCache = apiKeyLookupCache;
     }
 
     @Override
@@ -65,7 +64,7 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         }
 
         String token = headerValue.substring("Bearer ".length()).trim();
-        ApiKeyEntity apiKey = apiKeyRepository.findByTokenHashAndActiveTrue(tokenService.hash(token)).orElse(null);
+        ApiKeyEntity apiKey = apiKeyLookupCache.findActiveByTokenHash(tokenService.hash(token)).orElse(null);
         if (apiKey == null) {
             throw new ApiKeyFailure(HttpStatus.UNAUTHORIZED, "Invalid API key");
         }

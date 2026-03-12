@@ -8,6 +8,7 @@ import com.qizlan.llm.gateway.gateway.provider.ProviderStreamFormat;
 import com.qizlan.llm.gateway.gateway.service.ChatGatewayService;
 import com.qizlan.llm.gateway.gateway.service.ImageGatewayService;
 import com.qizlan.llm.gateway.gateway.service.ModelCatalogService;
+import com.qizlan.llm.gateway.gateway.service.RequestContextService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -36,11 +37,13 @@ public class V1Controller {
     private final ChatGatewayService chatGatewayService;
     private final ModelCatalogService modelCatalogService;
     private final ImageGatewayService imageGatewayService;
+    private final RequestContextService requestContextService;
 
-    public V1Controller(ChatGatewayService chatGatewayService, ModelCatalogService modelCatalogService, ImageGatewayService imageGatewayService) {
+    public V1Controller(ChatGatewayService chatGatewayService, ModelCatalogService modelCatalogService, ImageGatewayService imageGatewayService, RequestContextService requestContextService) {
         this.chatGatewayService = chatGatewayService;
         this.modelCatalogService = modelCatalogService;
         this.imageGatewayService = imageGatewayService;
+        this.requestContextService = requestContextService;
     }
 
     @GetMapping("/models")
@@ -53,7 +56,7 @@ public class V1Controller {
     @Operation(summary = "Create a completion for the chat conversation")
     public Object chat(@Valid @RequestBody ChatCompletionRequest request, ServerWebExchange exchange) {
         if (!request.streamEnabled()) {
-            return blocking(() -> chatGatewayService.complete(request, exchange.getAttribute("apiKey")));
+            return chatGatewayService.completeAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
         }
         return relayStream(request, exchange, ProviderStreamFormat.OPENAI);
     }
@@ -61,13 +64,13 @@ public class V1Controller {
     @PostMapping("/images/generations")
     @Operation(summary = "Create image")
     public Mono<ImageDtos.ImageResponse> imageGeneration(@Valid @RequestBody ImageDtos.ImageGenerationRequest request, ServerWebExchange exchange) {
-        return blocking(() -> imageGatewayService.generate(request, exchange.getAttribute("apiKey")));
+        return imageGatewayService.generateAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
     }
 
     @PostMapping(value = "/images/edits", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Edit image")
     public Mono<ImageDtos.ImageResponse> imageEditJson(@Valid @RequestBody ImageDtos.ImageEditRequest request, ServerWebExchange exchange) {
-        return blocking(() -> imageGatewayService.edit(request, exchange.getAttribute("apiKey")));
+        return imageGatewayService.editAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
     }
 
     @PostMapping(value = "/images/edits", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -82,10 +85,11 @@ public class V1Controller {
         if (!StringUtils.hasText(prompt) || selected == null || !StringUtils.hasText(selected.filename())) {
             throw new IllegalArgumentException("prompt and image file are required");
         }
-        return blocking(() -> imageGatewayService.edit(
+        return imageGatewayService.editAsync(
                 new ImageDtos.ImageEditRequest(List.of(new ImageDtos.ImageEditRef("multipart://upload")), prompt, null, null, "gemini-2.5-flash-image", 1, null, null, null, null),
-                exchange.getAttribute("apiKey")
-        ));
+                exchange.getAttribute("apiKey"),
+                requestContextService.get(exchange)
+        );
     }
 
     @PostMapping(value = "/messages", produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
@@ -124,9 +128,8 @@ public class V1Controller {
         if (request.streamEnabled()) {
             return relayStream(transformed, exchange, ProviderStreamFormat.ANTHROPIC);
         }
-        return blocking(() -> {
-            ChatCompletionResponse response = chatGatewayService.complete(transformed, exchange.getAttribute("apiKey"));
-            return new AnthropicDtos.AnthropicResponse(
+        return chatGatewayService.completeAsync(transformed, exchange.getAttribute("apiKey"), requestContextService.get(exchange))
+                .map(response -> new AnthropicDtos.AnthropicResponse(
                     response.id(),
                     "message",
                     "assistant",
@@ -135,8 +138,7 @@ public class V1Controller {
                     "end_turn",
                     null,
                     Map.of("input_tokens", response.usage().prompt_tokens(), "output_tokens", response.usage().completion_tokens())
-            );
-        });
+                ));
     }
 
     @PostMapping("/responses")
@@ -153,7 +155,8 @@ public class V1Controller {
         return chatGatewayService.streamFlux(
                 request,
                 exchange.getAttribute("apiKey"),
-                format
+                format,
+                requestContextService.get(exchange)
         ).map(event -> {
             ServerSentEvent.Builder<String> builder = ServerSentEvent.builder(event.data());
             if (event.eventName() != null && !event.eventName().isBlank()) {

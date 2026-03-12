@@ -1,7 +1,9 @@
 package com.qizlan.llm.gateway;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -24,6 +26,7 @@ class ChatCompletionsTest extends AbstractIntegrationTest {
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
+                .header("X-Correlation-Id", "corr-chat-001")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {
@@ -36,6 +39,24 @@ class ChatCompletionsTest extends AbstractIntegrationTest {
                 .expectBody()
                 .jsonPath("$.choices[0].message.content").isEqualTo("OpenAI says hello")
                 .jsonPath("$.usage.total_tokens").isEqualTo(18);
+
+        RecordedRequest upstreamRequest;
+        try {
+            upstreamRequest = OPENAI.takeRequest(5, TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            throw new IllegalStateException(ex);
+        }
+        assertTrue(upstreamRequest != null && "corr-chat-001".equals(upstreamRequest.getHeader("X-Correlation-Id")));
+        assertTrue(upstreamRequest.getHeader("X-Trace-Id") != null && !upstreamRequest.getHeader("X-Trace-Id").isBlank());
+
+        webTestClient.get().uri("/logs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].correlation_id").isEqualTo("corr-chat-001")
+                .jsonPath("$[0].trace_id").isNotEmpty()
+                .jsonPath("$[0].request_payload").value(org.hamcrest.Matchers.containsString("\"model\":\"gpt-4o\""))
+                .jsonPath("$[0].response_payload").value(org.hamcrest.Matchers.containsString("OpenAI says hello"));
     }
 
     @Test

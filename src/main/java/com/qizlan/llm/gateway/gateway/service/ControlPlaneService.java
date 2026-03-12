@@ -1,6 +1,8 @@
 package com.qizlan.llm.gateway.gateway.service;
 
 import com.qizlan.llm.gateway.gateway.security.ApiKeyTokenService;
+import com.qizlan.llm.gateway.gateway.security.ApiKeyLookupCache;
+import com.qizlan.llm.gateway.gateway.security.IamRuleService;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyIamRuleEntity;
 import com.qizlan.llm.gateway.persistence.entity.OrganizationEntity;
@@ -22,6 +24,8 @@ public class ControlPlaneService {
     private final ApiKeyIamRuleRepository apiKeyIamRuleRepository;
     private final ApiKeyTokenService tokenService;
     private final AuditLogService auditLogService;
+    private final ApiKeyLookupCache apiKeyLookupCache;
+    private final IamRuleService iamRuleService;
 
     public ControlPlaneService(
             OrganizationRepository organizationRepository,
@@ -29,7 +33,9 @@ public class ControlPlaneService {
             ApiKeyRepository apiKeyRepository,
             ApiKeyIamRuleRepository apiKeyIamRuleRepository,
             ApiKeyTokenService tokenService,
-            AuditLogService auditLogService
+            AuditLogService auditLogService,
+            ApiKeyLookupCache apiKeyLookupCache,
+            IamRuleService iamRuleService
     ) {
         this.organizationRepository = organizationRepository;
         this.projectRepository = projectRepository;
@@ -37,6 +43,8 @@ public class ControlPlaneService {
         this.apiKeyIamRuleRepository = apiKeyIamRuleRepository;
         this.tokenService = tokenService;
         this.auditLogService = auditLogService;
+        this.apiKeyLookupCache = apiKeyLookupCache;
+        this.iamRuleService = iamRuleService;
     }
 
     public List<OrganizationEntity> listOrganizations() {
@@ -133,14 +141,15 @@ public class ControlPlaneService {
                 organization,
                 project
         );
-        apiKeyRepository.save(entity);
+        ApiKeyEntity saved = apiKeyRepository.save(entity);
+        apiKeyLookupCache.evict(saved);
         auditLogService.record(context, organization.getId(), "api_key.create", "api_key", entity.getId(), "project", project.getId(), Map.of(
-                "name", entity.getName(),
+                "name", saved.getName(),
                 "project_id", project.getId(),
-                "token_prefix", entity.getTokenPrefix(),
-                "active", entity.isActive()
+                "token_prefix", saved.getTokenPrefix(),
+                "active", saved.isActive()
         ));
-        return new ApiKeyCreateResult(entity, rawToken);
+        return new ApiKeyCreateResult(saved, rawToken);
     }
 
     public List<ApiKeyEntity> listApiKeys() {
@@ -167,6 +176,7 @@ public class ControlPlaneService {
             entity.setRequestsPerMinuteLimit(requestsPerMinuteLimit);
         }
         ApiKeyEntity saved = apiKeyRepository.save(entity);
+        apiKeyLookupCache.evict(saved);
         auditLogService.record(context, saved.getOrganization() == null ? "" : saved.getOrganization().getId(), "api_key.update", "api_key", saved.getId(), "project", saved.getProject() == null ? "" : saved.getProject().getId(), Map.of(
                 "name", saved.getName(),
                 "project_id", saved.getProject() == null ? "" : saved.getProject().getId(),
@@ -182,7 +192,8 @@ public class ControlPlaneService {
         ApiKeyEntity entity = apiKeyRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown api key: " + id));
         entity.setActive(false);
-        apiKeyRepository.save(entity);
+        ApiKeyEntity saved = apiKeyRepository.save(entity);
+        apiKeyLookupCache.evict(saved);
         auditLogService.record(context, entity.getOrganization() == null ? "" : entity.getOrganization().getId(), "api_key.delete", "api_key", entity.getId(), "project", entity.getProject() == null ? "" : entity.getProject().getId(), Map.of(
                 "name", entity.getName(),
                 "project_id", entity.getProject() == null ? "" : entity.getProject().getId(),
@@ -197,6 +208,7 @@ public class ControlPlaneService {
         String organizationId = apiKey.getOrganization() == null ? "" : apiKey.getOrganization().getId();
         ApiKeyIamRuleEntity entity = new ApiKeyIamRuleEntity(apiKey, normalizeRuleType(ruleType), normalizeEffect(effect), pattern, true);
         ApiKeyIamRuleEntity saved = apiKeyIamRuleRepository.save(entity);
+        iamRuleService.evictRules(apiKey.getId());
         auditLogService.record(context, organizationId, "iam_rule.create", "iam_rule", saved.getId(), "api_key", apiKey.getId(), Map.of(
                 "api_key_id", apiKey.getId(),
                 "rule_type", saved.getRuleType(),
@@ -234,6 +246,7 @@ public class ControlPlaneService {
             entity.setActive(active);
         }
         ApiKeyIamRuleEntity saved = apiKeyIamRuleRepository.save(entity);
+        iamRuleService.evictRules(boundApiKeyId);
         auditLogService.record(context, organizationId, "iam_rule.update", "iam_rule", saved.getId(), "api_key", boundApiKeyId, Map.of(
                 "api_key_id", boundApiKeyId,
                 "rule_type", saved.getRuleType(),
@@ -261,6 +274,7 @@ public class ControlPlaneService {
                 "active", entity.isActive()
         ));
         apiKeyIamRuleRepository.delete(entity);
+        iamRuleService.evictRules(boundApiKeyId);
     }
 
     private void ensureApiKeyExists(String apiKeyId) {

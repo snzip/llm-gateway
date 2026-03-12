@@ -10,7 +10,9 @@ public record GatewayProperties(
         RoutingProperties routing,
         SyncProperties sync,
         AggregationProperties aggregation,
-        ProbeProperties probe
+        ProbeProperties probe,
+        RequestLogProperties requestLog,
+        McpProperties mcp
 ) {
     public record SeedProperties(
             boolean enabled,
@@ -58,6 +60,20 @@ public record GatewayProperties(
     public record ProbeProperties(
             boolean enabled,
             long fixedDelayMillis
+    ) {
+    }
+
+    public record RequestLogProperties(
+            boolean payloadSamplingEnabled,
+            double sampleRate,
+            int maxBodyChars,
+            boolean storeResponsePayload,
+            java.util.List<String> redactedFields
+    ) {
+    }
+
+    public record McpProperties(
+            java.util.Map<String, String> toolScopes
     ) {
     }
 }

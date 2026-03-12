@@ -10,6 +10,8 @@ import com.qizlan.llm.gateway.persistence.entity.ModelProviderMappingEntity;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 public class ImageGatewayService {
@@ -31,83 +33,120 @@ public class ImageGatewayService {
     }
 
     public ImageDtos.ImageResponse generate(ImageDtos.ImageGenerationRequest request, ApiKeyEntity apiKey) {
-        long startedAt = System.currentTimeMillis();
-        guardrailService.evaluate(
-                apiKey == null || apiKey.getOrganization() == null ? "" : apiKey.getOrganization().getId(),
-                request.prompt(),
-                "/v1/images/generations",
-                apiKey
-        );
-        List<RoutingAttempt> attempts = new ArrayList<>();
-        iamRuleService.assertModelAllowed(apiKey, request.model());
-        List<ModelProviderMappingEntity> candidates = routingService.resolveCandidates(request.model(), apiKey);
-        if (candidates.isEmpty()) {
-            throw new com.qizlan.llm.gateway.gateway.security.ApiKeyAccessDeniedException("Provider access denied for model: " + request.model());
-        }
-        for (ModelProviderMappingEntity mapping : candidates) {
-            try {
-                ImageDtos.ImageResponse response = providerGateway.generateImage(request, mapping.getProvider().getId(), mapping.getModelName());
-                providerHealthService.recordSuccess(mapping.getProvider().getId());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 200, "none", true));
-                requestLogService.logImageRequest("/v1/images/generations", request.model(), mapping.getProvider().getId(), apiKey, 200, System.currentTimeMillis() - startedAt, attempts);
-                return response;
-            } catch (UpstreamProviderException ex) {
-                providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
-                if (!ex.isRetryable()) {
-                    requestLogService.logGatewayFailure("/v1/images/generations", request.model(), apiKey, ex.getGatewayStatus(), System.currentTimeMillis() - startedAt, attempts);
-                    throw ex;
-                }
-                applyBackoffIfNeeded(ex, attempts.size());
-            }
-        }
-        requestLogService.logGatewayFailure("/v1/images/generations", request.model(), apiKey, 502, System.currentTimeMillis() - startedAt, attempts);
-        throw UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + request.model());
+        return generateAsync(request, apiKey, new RequestContext("", "", "", "system", "sync")).block();
+    }
+
+    public Mono<ImageDtos.ImageResponse> generateAsync(ImageDtos.ImageGenerationRequest request, ApiKeyEntity apiKey) {
+        return generateAsync(request, apiKey, new RequestContext("", "", "", "system", "sync"));
+    }
+
+    public Mono<ImageDtos.ImageResponse> generateAsync(ImageDtos.ImageGenerationRequest request, ApiKeyEntity apiKey, RequestContext requestContext) {
+        return Mono.fromCallable(() -> prepareRequest(request.model(), request.prompt(), apiKey, "/v1/images/generations"))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(state -> tryGenerate(state.withContext(requestContext), request, 0))
+                .contextWrite(ctx -> ctx.put(RequestContextService.REACTOR_CONTEXT_KEY, requestContext));
     }
 
     public ImageDtos.ImageResponse edit(ImageDtos.ImageEditRequest request, ApiKeyEntity apiKey) {
+        return editAsync(request, apiKey, new RequestContext("", "", "", "system", "sync")).block();
+    }
+
+    public Mono<ImageDtos.ImageResponse> editAsync(ImageDtos.ImageEditRequest request, ApiKeyEntity apiKey) {
+        return editAsync(request, apiKey, new RequestContext("", "", "", "system", "sync"));
+    }
+
+    public Mono<ImageDtos.ImageResponse> editAsync(ImageDtos.ImageEditRequest request, ApiKeyEntity apiKey, RequestContext requestContext) {
+        return Mono.fromCallable(() -> prepareRequest(request.model(), request.prompt(), apiKey, "/v1/images/edits"))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(state -> tryEdit(state.withContext(requestContext), request, 0))
+                .contextWrite(ctx -> ctx.put(RequestContextService.REACTOR_CONTEXT_KEY, requestContext));
+    }
+
+    private Mono<ImageDtos.ImageResponse> tryGenerate(ImageExecutionState state, ImageDtos.ImageGenerationRequest request, int index) {
+        if (index >= state.candidates().size()) {
+            requestLogService.logGatewayFailure(state.path(), state.requestedModel(), state.apiKey(), 502, System.currentTimeMillis() - state.startedAt(), state.attempts(), request, state.requestContext());
+            return Mono.error(UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + state.requestedModel()));
+        }
+        ModelProviderMappingEntity mapping = state.candidates().get(index);
+        return providerGateway.generateImageAsync(request, mapping.getProvider().getId(), mapping.getModelName())
+                .doOnNext(response -> {
+                    providerHealthService.recordSuccess(mapping.getProvider().getId());
+                    state.attempts().add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 200, "none", true));
+                    requestLogService.logImageRequest(state.path(), state.requestedModel(), mapping.getProvider().getId(), state.apiKey(), 200, System.currentTimeMillis() - state.startedAt(), state.attempts(), request, response, state.requestContext());
+                })
+                .onErrorResume(UpstreamProviderException.class, ex -> handleImageFailure(state, index, mapping, ex, () -> tryGenerate(state, request, index + 1)))
+                .onErrorResume(ex -> ex instanceof RuntimeException && !(ex instanceof UpstreamProviderException), ex -> {
+                    providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
+                    state.attempts().add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 500, "gateway_error", false));
+                    return tryGenerate(state, request, index + 1);
+                });
+    }
+
+    private Mono<ImageDtos.ImageResponse> tryEdit(ImageExecutionState state, ImageDtos.ImageEditRequest request, int index) {
+        if (index >= state.candidates().size()) {
+            requestLogService.logGatewayFailure(state.path(), state.requestedModel(), state.apiKey(), 502, System.currentTimeMillis() - state.startedAt(), state.attempts(), request, state.requestContext());
+            return Mono.error(UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + state.requestedModel()));
+        }
+        ModelProviderMappingEntity mapping = state.candidates().get(index);
+        return providerGateway.editImageAsync(request, mapping.getProvider().getId(), mapping.getModelName())
+                .doOnNext(response -> {
+                    providerHealthService.recordSuccess(mapping.getProvider().getId());
+                    state.attempts().add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 200, "none", true));
+                    requestLogService.logImageRequest(state.path(), state.requestedModel(), mapping.getProvider().getId(), state.apiKey(), 200, System.currentTimeMillis() - state.startedAt(), state.attempts(), request, response, state.requestContext());
+                })
+                .onErrorResume(UpstreamProviderException.class, ex -> handleImageFailure(state, index, mapping, ex, () -> tryEdit(state, request, index + 1)))
+                .onErrorResume(ex -> ex instanceof RuntimeException && !(ex instanceof UpstreamProviderException), ex -> {
+                    providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
+                    state.attempts().add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 500, "gateway_error", false));
+                    return tryEdit(state, request, index + 1);
+                });
+    }
+
+    private Mono<ImageDtos.ImageResponse> handleImageFailure(ImageExecutionState state, int index, ModelProviderMappingEntity mapping, UpstreamProviderException ex, java.util.function.Supplier<Mono<ImageDtos.ImageResponse>> next) {
+        providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
+        state.attempts().add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
+        if (!ex.isRetryable()) {
+            requestLogService.logGatewayFailure(state.path(), state.requestedModel(), state.apiKey(), ex.getGatewayStatus(), System.currentTimeMillis() - state.startedAt(), state.attempts(), state.requestedModel(), state.requestContext());
+            return Mono.error(ex);
+        }
+        return backoff(ex, index + 1).then(next.get());
+    }
+
+    private ImageExecutionState prepareRequest(String model, String prompt, ApiKeyEntity apiKey, String path) {
         long startedAt = System.currentTimeMillis();
         guardrailService.evaluate(
                 apiKey == null || apiKey.getOrganization() == null ? "" : apiKey.getOrganization().getId(),
-                request.prompt(),
-                "/v1/images/edits",
+                prompt,
+                path,
                 apiKey
         );
         List<RoutingAttempt> attempts = new ArrayList<>();
-        iamRuleService.assertModelAllowed(apiKey, request.model());
-        List<ModelProviderMappingEntity> candidates = routingService.resolveCandidates(request.model(), apiKey);
+        iamRuleService.assertModelAllowed(apiKey, model);
+        List<ModelProviderMappingEntity> candidates = routingService.resolveCandidates(model, apiKey);
         if (candidates.isEmpty()) {
-            throw new com.qizlan.llm.gateway.gateway.security.ApiKeyAccessDeniedException("Provider access denied for model: " + request.model());
+            throw new com.qizlan.llm.gateway.gateway.security.ApiKeyAccessDeniedException("Provider access denied for model: " + model);
         }
-        for (ModelProviderMappingEntity mapping : candidates) {
-            try {
-                ImageDtos.ImageResponse response = providerGateway.editImage(request, mapping.getProvider().getId(), mapping.getModelName());
-                providerHealthService.recordSuccess(mapping.getProvider().getId());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 200, "none", true));
-                requestLogService.logImageRequest("/v1/images/edits", request.model(), mapping.getProvider().getId(), apiKey, 200, System.currentTimeMillis() - startedAt, attempts);
-                return response;
-            } catch (UpstreamProviderException ex) {
-                providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
-                if (!ex.isRetryable()) {
-                    requestLogService.logGatewayFailure("/v1/images/edits", request.model(), apiKey, ex.getGatewayStatus(), System.currentTimeMillis() - startedAt, attempts);
-                    throw ex;
-                }
-                applyBackoffIfNeeded(ex, attempts.size());
-            }
-        }
-        requestLogService.logGatewayFailure("/v1/images/edits", request.model(), apiKey, 502, System.currentTimeMillis() - startedAt, attempts);
-        throw UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + request.model());
+        return new ImageExecutionState(apiKey, path, model, startedAt, candidates, attempts, new RequestContext("", "", "", "system", "gateway"));
     }
 
-    private void applyBackoffIfNeeded(UpstreamProviderException ex, int attemptNumber) {
+    private Mono<Long> backoff(UpstreamProviderException ex, int attemptNumber) {
         if (ex.getStatusCode() != 429) {
-            return;
+            return Mono.empty();
         }
-        try {
-            Thread.sleep(Math.min(50L * attemptNumber, 200L));
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
+        return Mono.delay(java.time.Duration.ofMillis(Math.min(50L * attemptNumber, 200L)));
+    }
+
+    private record ImageExecutionState(
+            ApiKeyEntity apiKey,
+            String path,
+            String requestedModel,
+            long startedAt,
+            List<ModelProviderMappingEntity> candidates,
+            List<RoutingAttempt> attempts,
+            RequestContext requestContext
+    ) {
+        private ImageExecutionState withContext(RequestContext context) {
+            return new ImageExecutionState(apiKey, path, requestedModel, startedAt, candidates, attempts, context);
         }
     }
 }

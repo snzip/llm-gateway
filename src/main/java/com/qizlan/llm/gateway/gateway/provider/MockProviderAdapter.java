@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Component
 public class MockProviderAdapter implements ProviderAdapter {
@@ -31,13 +33,28 @@ public class MockProviderAdapter implements ProviderAdapter {
     }
 
     @Override
+    public Mono<ProviderChatResult> completeAsync(ChatCompletionRequest request, String providerModel) {
+        return Mono.just(complete(request, providerModel));
+    }
+
+    @Override
     public ImageDtos.ImageResponse generateImage(ImageDtos.ImageGenerationRequest request, String providerModel) {
         return ImageDtos.ImageResponse.single(request.prompt());
     }
 
     @Override
+    public Mono<ImageDtos.ImageResponse> generateImageAsync(ImageDtos.ImageGenerationRequest request, String providerModel) {
+        return Mono.just(generateImage(request, providerModel));
+    }
+
+    @Override
     public ImageDtos.ImageResponse editImage(ImageDtos.ImageEditRequest request, String providerModel) {
         return ImageDtos.ImageResponse.single(request.prompt());
+    }
+
+    @Override
+    public Mono<ImageDtos.ImageResponse> editImageAsync(ImageDtos.ImageEditRequest request, String providerModel) {
+        return Mono.just(editImage(request, providerModel));
     }
 
     @Override
@@ -77,5 +94,19 @@ public class MockProviderAdapter implements ProviderAdapter {
                     .orElse("");
         }
         return content.toString();
+    }
+
+    @Override
+    public Flux<ProviderStreamEvent> streamChatAsync(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format) {
+        return Flux.just(
+                new ProviderStreamEvent(
+                        format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
+                        format == ProviderStreamFormat.ANTHROPIC
+                                ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"mock stream\"}}"
+                                : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"mock stream\"},\"finish_reason\":null}]}",
+                        false
+                ),
+                new ProviderStreamEvent(format == ProviderStreamFormat.ANTHROPIC ? "message_stop" : null, format == ProviderStreamFormat.ANTHROPIC ? "{\"type\":\"message_stop\"}" : "[DONE]", true)
+        );
     }
 }

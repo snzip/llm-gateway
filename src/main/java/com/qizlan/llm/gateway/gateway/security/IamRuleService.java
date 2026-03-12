@@ -5,6 +5,8 @@ import com.qizlan.llm.gateway.persistence.entity.ApiKeyIamRuleEntity;
 import com.qizlan.llm.gateway.persistence.entity.ModelProviderMappingEntity;
 import com.qizlan.llm.gateway.persistence.repository.ApiKeyIamRuleRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import org.springframework.util.AntPathMatcher;
 
@@ -13,6 +15,7 @@ public class IamRuleService {
 
     private final ApiKeyIamRuleRepository apiKeyIamRuleRepository;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
+    private final Map<String, List<ApiKeyIamRuleEntity>> ruleCache = new ConcurrentHashMap<>();
 
     public IamRuleService(ApiKeyIamRuleRepository apiKeyIamRuleRepository) {
         this.apiKeyIamRuleRepository = apiKeyIamRuleRepository;
@@ -64,10 +67,16 @@ public class IamRuleService {
         if (apiKey == null) {
             return List.of();
         }
-        return apiKeyIamRuleRepository.findByApiKeyIdOrderByRuleTypeAscEffectAscPatternAsc(apiKey.getId()).stream()
+        return ruleCache.computeIfAbsent(apiKey.getId(), apiKeyIamRuleRepository::findByApiKeyIdOrderByRuleTypeAscEffectAscPatternAsc).stream()
                 .filter(ApiKeyIamRuleEntity::isActive)
                 .filter(rule -> type.equalsIgnoreCase(rule.getRuleType()))
                 .toList();
+    }
+
+    public void evictRules(String apiKeyId) {
+        if (apiKeyId != null && !apiKeyId.isBlank()) {
+            ruleCache.remove(apiKeyId);
+        }
     }
 
     private void assertAllowed(List<ApiKeyIamRuleEntity> rules, String value, String errorMessage, boolean path) {

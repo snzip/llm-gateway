@@ -14,11 +14,13 @@ public class RoutingService {
     private final ModelProviderMappingRepository mappingRepository;
     private final ProviderHealthService providerHealthService;
     private final IamRuleService iamRuleService;
+    private final ModelRoutingCache modelRoutingCache;
 
-    public RoutingService(ModelProviderMappingRepository mappingRepository, ProviderHealthService providerHealthService, IamRuleService iamRuleService) {
+    public RoutingService(ModelProviderMappingRepository mappingRepository, ProviderHealthService providerHealthService, IamRuleService iamRuleService, ModelRoutingCache modelRoutingCache) {
         this.mappingRepository = mappingRepository;
         this.providerHealthService = providerHealthService;
         this.iamRuleService = iamRuleService;
+        this.modelRoutingCache = modelRoutingCache;
     }
 
     public ModelProviderMappingEntity resolve(String requestedModel, ApiKeyEntity apiKey) {
@@ -37,10 +39,10 @@ public class RoutingService {
                     .filter(m -> m.getProvider().getId().equals(providerId) && m.getModel().getId().equals(modelId))
                     .toList());
         }
-        List<ModelProviderMappingEntity> mappings = mappingRepository.findByModelIdOrderByPriorityAscProviderIdAsc(requestedModel).stream()
+        List<ModelProviderMappingEntity> mappings = modelRoutingCache.get(requestedModel, () -> mappingRepository.findByModelIdOrderByPriorityAscProviderIdAsc(requestedModel).stream()
                 .filter(ModelProviderMappingEntity::isActive)
                 .filter(mapping -> !mapping.getModel().isArchived())
-                .toList();
+                .toList());
         if (mappings.isEmpty()) {
             throw new IllegalArgumentException("Unknown model: " + requestedModel);
         }
@@ -50,5 +52,9 @@ public class RoutingService {
                         .thenComparingInt(ModelProviderMappingEntity::getPriority)
                         .thenComparing(mapping -> mapping.getProvider().getId()))
                 .toList());
+    }
+
+    public void evictModel(String modelId) {
+        modelRoutingCache.evict(modelId);
     }
 }

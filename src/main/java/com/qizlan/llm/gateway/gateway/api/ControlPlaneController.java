@@ -366,6 +366,11 @@ public class ControlPlaneController {
                 Map.entry("api_key_id", entity.getApiKeyId() == null ? "" : entity.getApiKeyId()),
                 Map.entry("organization_id", entity.getOrganizationId() == null ? "" : entity.getOrganizationId()),
                 Map.entry("project_id", entity.getProjectId() == null ? "" : entity.getProjectId()),
+                Map.entry("correlation_id", entity.getCorrelationId() == null ? "" : entity.getCorrelationId()),
+                Map.entry("trace_id", entity.getTraceId() == null ? "" : entity.getTraceId()),
+                Map.entry("span_id", entity.getSpanId() == null ? "" : entity.getSpanId()),
+                Map.entry("request_payload", entity.getRequestPayload() == null ? "" : entity.getRequestPayload()),
+                Map.entry("response_payload", entity.getResponsePayload() == null ? "" : entity.getResponsePayload()),
                 Map.entry("routing_trace", parseRoutingTrace(entity.getRoutingTrace()))
         );
     }
