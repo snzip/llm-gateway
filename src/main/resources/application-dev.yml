@@ -1,0 +1,16 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+  h2:
+    console:
+      enabled: true
+
+llm:
+  gateway:
+    seed:
+      enabled: true
+      api-key: ${LLM_GATEWAY_SEED_API_KEY:test-api-key}
+      name: ${LLM_GATEWAY_SEED_NAME:Dev seed key}
+    providers:
+      mode: ${LLM_GATEWAY_PROVIDER_MODE:mock}

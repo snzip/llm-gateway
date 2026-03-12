@@ -5,13 +5,20 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "llm.gateway")
 public record GatewayProperties(
         String apiKeyHeader,
-        String seedApiKey,
+        SeedProperties seed,
         ProviderProperties providers,
         RoutingProperties routing,
         SyncProperties sync,
         AggregationProperties aggregation,
         ProbeProperties probe
 ) {
+    public record SeedProperties(
+            boolean enabled,
+            String apiKey,
+            String name
+    ) {
+    }
+
     public record ProviderProperties(
             String mode,
             Endpoint openai,

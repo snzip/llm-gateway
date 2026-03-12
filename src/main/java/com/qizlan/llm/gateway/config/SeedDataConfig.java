@@ -38,12 +38,15 @@ public class SeedDataConfig {
             ProjectEntity defaultProject = projectRepository.findAll().stream()
                     .findFirst()
                     .orElseGet(() -> projectRepository.save(new ProjectEntity("Default Project", defaultOrg)));
-            if (apiKeyRepository.count() == 0) {
-                String seedToken = properties.seedApiKey();
+            if (apiKeyRepository.count() == 0 && properties.seed() != null && properties.seed().enabled()) {
+                String seedToken = properties.seed().apiKey();
+                if (seedToken == null || seedToken.isBlank()) {
+                    throw new IllegalStateException("Seed API key is enabled but llm.gateway.seed.api-key is blank");
+                }
                 apiKeyRepository.save(new ApiKeyEntity(
                         apiKeyTokenService.hash(seedToken),
                         apiKeyTokenService.prefix(seedToken),
-                        "Seed key",
+                        properties.seed().name() == null || properties.seed().name().isBlank() ? "Seed key" : properties.seed().name(),
                         true,
                         defaultOrg,
                         defaultProject

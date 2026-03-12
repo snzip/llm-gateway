@@ -225,6 +225,14 @@ class GatewayApplicationTests {
                 .block(Duration.ofSeconds(5));
         assertTrue(body.contains("stream hello"));
         assertTrue(body.contains("[DONE]"));
+
+        webTestClient.get().uri("/logs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].streamed").isEqualTo(true)
+                .jsonPath("$[0].time_to_first_token_ms").value(org.hamcrest.Matchers.greaterThanOrEqualTo(0))
+                .jsonPath("$[0].request_id").exists();
     }
 
     @Test

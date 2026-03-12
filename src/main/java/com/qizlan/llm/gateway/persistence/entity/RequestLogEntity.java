@@ -17,6 +17,9 @@ public class RequestLogEntity {
     private String id;
 
     @Column(nullable = false)
+    private String requestId;
+
+    @Column(nullable = false)
     private String path;
 
     @Column(nullable = false)
@@ -43,6 +46,36 @@ public class RequestLogEntity {
     @Column(nullable = false)
     private long estimatedCostMicrosUsd;
 
+    @Column(nullable = false)
+    private long promptCostMicrosUsd;
+
+    @Column(nullable = false)
+    private long completionCostMicrosUsd;
+
+    @Column(nullable = false)
+    private int reasoningTokens;
+
+    @Column(nullable = false)
+    private int cachedTokens;
+
+    @Column(nullable = false)
+    private int imageCount;
+
+    @Column(nullable = false)
+    private long timeToFirstTokenMs;
+
+    @Column(nullable = false)
+    private boolean streamed;
+
+    @Column(nullable = false)
+    private boolean canceled;
+
+    @Column(nullable = false)
+    private boolean retried;
+
+    @Column(nullable = false)
+    private boolean hasError;
+
     private String apiKeyId;
 
     private String organizationId;
@@ -59,6 +92,7 @@ public class RequestLogEntity {
     }
 
     public RequestLogEntity(
+            String requestId,
             String path,
             String requestedModel,
             String providerId,
@@ -68,11 +102,22 @@ public class RequestLogEntity {
             int completionTokens,
             int totalTokens,
             long estimatedCostMicrosUsd,
+            long promptCostMicrosUsd,
+            long completionCostMicrosUsd,
+            int reasoningTokens,
+            int cachedTokens,
+            int imageCount,
+            long timeToFirstTokenMs,
+            boolean streamed,
+            boolean canceled,
+            boolean retried,
+            boolean hasError,
             String apiKeyId,
             String organizationId,
             String projectId,
             String routingTrace
     ) {
+        this.requestId = requestId;
         this.path = path;
         this.requestedModel = requestedModel;
         this.providerId = providerId;
@@ -82,6 +127,16 @@ public class RequestLogEntity {
         this.completionTokens = completionTokens;
         this.totalTokens = totalTokens;
         this.estimatedCostMicrosUsd = estimatedCostMicrosUsd;
+        this.promptCostMicrosUsd = promptCostMicrosUsd;
+        this.completionCostMicrosUsd = completionCostMicrosUsd;
+        this.reasoningTokens = reasoningTokens;
+        this.cachedTokens = cachedTokens;
+        this.imageCount = imageCount;
+        this.timeToFirstTokenMs = timeToFirstTokenMs;
+        this.streamed = streamed;
+        this.canceled = canceled;
+        this.retried = retried;
+        this.hasError = hasError;
         this.apiKeyId = apiKeyId;
         this.organizationId = organizationId;
         this.projectId = projectId;
@@ -98,6 +153,10 @@ public class RequestLogEntity {
 
     public String getId() {
         return id;
+    }
+
+    public String getRequestId() {
+        return requestId;
     }
 
     public String getPath() {
@@ -134,6 +193,46 @@ public class RequestLogEntity {
 
     public long getEstimatedCostMicrosUsd() {
         return estimatedCostMicrosUsd;
+    }
+
+    public long getPromptCostMicrosUsd() {
+        return promptCostMicrosUsd;
+    }
+
+    public long getCompletionCostMicrosUsd() {
+        return completionCostMicrosUsd;
+    }
+
+    public int getReasoningTokens() {
+        return reasoningTokens;
+    }
+
+    public int getCachedTokens() {
+        return cachedTokens;
+    }
+
+    public int getImageCount() {
+        return imageCount;
+    }
+
+    public long getTimeToFirstTokenMs() {
+        return timeToFirstTokenMs;
+    }
+
+    public boolean isStreamed() {
+        return streamed;
+    }
+
+    public boolean isCanceled() {
+        return canceled;
+    }
+
+    public boolean isRetried() {
+        return retried;
+    }
+
+    public boolean isHasError() {
+        return hasError;
     }
 
     public String getApiKeyId() {

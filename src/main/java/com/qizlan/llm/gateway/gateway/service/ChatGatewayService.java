@@ -90,6 +90,7 @@ public class ChatGatewayService {
     }
 
     public void stream(ChatCompletionRequest request, ApiKeyEntity apiKey, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
+        long startedAt = System.currentTimeMillis();
         guardrailService.evaluate(
                 apiKey == null || apiKey.getOrganization() == null ? "" : apiKey.getOrganization().getId(),
                 request.messages().stream().map(message -> message.content() == null ? "" : message.content().toString()).reduce((a, b) -> a + "\n" + b).orElse(""),
@@ -101,20 +102,48 @@ public class ChatGatewayService {
         if (candidates.isEmpty()) {
             throw new com.qizlan.llm.gateway.gateway.security.ApiKeyAccessDeniedException("Provider access denied for model: " + request.model());
         }
+        List<RoutingAttempt> attempts = new ArrayList<>();
         RuntimeException lastError = null;
         for (ModelProviderMappingEntity mapping : candidates) {
             try {
-                providerGateway.streamChat(request, mapping.getProvider().getId(), mapping.getModelName(), format, consumer);
+                long[] firstTokenAt = new long[]{-1L};
+                providerGateway.streamChat(request, mapping.getProvider().getId(), mapping.getModelName(), format, event -> {
+                    if (!event.done() && firstTokenAt[0] < 0) {
+                        firstTokenAt[0] = System.currentTimeMillis();
+                    }
+                    consumer.accept(event);
+                });
                 providerHealthService.recordSuccess(mapping.getProvider().getId());
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 200, "none", true));
+                requestLogService.logStreamRequest(
+                        format == ProviderStreamFormat.ANTHROPIC ? "/v1/messages" : "/v1/chat/completions",
+                        request.model(),
+                        mapping.getProvider().getId(),
+                        apiKey,
+                        200,
+                        System.currentTimeMillis() - startedAt,
+                        firstTokenAt[0] < 0 ? 0 : firstTokenAt[0] - startedAt,
+                        attempts
+                );
                 return;
             } catch (UpstreamProviderException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), "upstream_error", false));
                 lastError = ex;
             } catch (RuntimeException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 500, "gateway_error", false));
                 lastError = ex;
             }
         }
+        requestLogService.logGatewayFailure(
+                format == ProviderStreamFormat.ANTHROPIC ? "/v1/messages" : "/v1/chat/completions",
+                request.model(),
+                apiKey,
+                502,
+                System.currentTimeMillis() - startedAt,
+                attempts
+        );
         if (lastError != null) {
             throw lastError;
         }

@@ -13,9 +13,6 @@ spring:
     properties:
       hibernate:
         format_sql: true
-  h2:
-    console:
-      enabled: true
 
 management:
   endpoints:
@@ -34,22 +31,25 @@ springdoc:
 
 llm:
   gateway:
-    api-key-header: Authorization
-    seed-api-key: test-api-key
+    api-key-header: ${LLM_GATEWAY_API_KEY_HEADER:Authorization}
+    seed:
+      enabled: ${LLM_GATEWAY_SEED_ENABLED:false}
+      api-key: ${LLM_GATEWAY_SEED_API_KEY:test-api-key}
+      name: ${LLM_GATEWAY_SEED_NAME:Seed key}
     providers:
-      mode: mock
+      mode: ${LLM_GATEWAY_PROVIDER_MODE:mock}
       openai:
-        enabled: false
-        base-url: https://api.openai.com
-        api-key:
+        enabled: ${OPENAI_ENABLED:false}
+        base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+        api-key: ${OPENAI_API_KEY:dev-openai-key}
       anthropic:
-        enabled: false
-        base-url: https://api.anthropic.com
-        api-key:
+        enabled: ${ANTHROPIC_ENABLED:false}
+        base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+        api-key: ${ANTHROPIC_API_KEY:dev-anthropic-key}
       google:
-        enabled: false
-        base-url: https://generativelanguage.googleapis.com
-        api-key:
+        enabled: ${GOOGLE_ENABLED:false}
+        base-url: ${GOOGLE_BASE_URL:https://generativelanguage.googleapis.com}
+        api-key: ${GOOGLE_API_KEY:dev-google-key}
     routing:
       failure-threshold: 1
       cooldown-millis: 30000

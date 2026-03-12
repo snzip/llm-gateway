@@ -11,7 +11,10 @@ spring:
 llm:
   gateway:
     api-key-header: Authorization
-    seed-api-key: test-api-key
+    seed:
+      enabled: true
+      api-key: test-api-key
+      name: Test seed key
     providers:
       mode: mock
       openai:

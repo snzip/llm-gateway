@@ -1,0 +1,14 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  h2:
+    console:
+      enabled: false
+
+llm:
+  gateway:
+    seed:
+      enabled: false
+    providers:
+      mode: ${LLM_GATEWAY_PROVIDER_MODE:real}
