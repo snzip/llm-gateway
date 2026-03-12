@@ -76,4 +76,12 @@ public class OAuthClientEntity {
     public boolean isActive() {
         return active;
     }
+
+    public void setClientSecret(String clientSecret) {
+        this.clientSecret = clientSecret;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
 }

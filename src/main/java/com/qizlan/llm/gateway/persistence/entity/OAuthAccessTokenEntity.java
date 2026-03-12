@@ -24,6 +24,13 @@ public class OAuthAccessTokenEntity {
     @Column(nullable = false)
     private long expiresInSeconds;
 
+    private String refreshToken;
+
+    @Column(nullable = false)
+    private boolean revoked;
+
+    private OffsetDateTime revokedAt;
+
     @Column(nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -34,12 +41,16 @@ public class OAuthAccessTokenEntity {
         this.clientId = clientId;
         this.scope = scope;
         this.expiresInSeconds = expiresInSeconds;
+        this.revoked = false;
     }
 
     @PrePersist
     void onCreate() {
         if (accessToken == null) {
             accessToken = "mcp_" + UUID.randomUUID().toString().replace("-", "");
+        }
+        if (refreshToken == null) {
+            refreshToken = "mcp_refresh_" + UUID.randomUUID().toString().replace("-", "");
         }
         createdAt = OffsetDateTime.now();
     }
@@ -58,5 +69,34 @@ public class OAuthAccessTokenEntity {
 
     public long getExpiresInSeconds() {
         return expiresInSeconds;
+    }
+
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    public boolean isRevoked() {
+        return revoked;
+    }
+
+    public OffsetDateTime getRevokedAt() {
+        return revokedAt;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public boolean isExpired() {
+        return createdAt != null && createdAt.plusSeconds(expiresInSeconds).isBefore(OffsetDateTime.now());
+    }
+
+    public void revoke() {
+        this.revoked = true;
+        this.revokedAt = OffsetDateTime.now();
+    }
+
+    public void setRefreshToken(String refreshToken) {
+        this.refreshToken = refreshToken;
     }
 }

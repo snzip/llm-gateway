@@ -28,6 +28,14 @@ public class RequestContextService {
         current.remove();
     }
 
+    public void overrideActorIfDefault(String actorType, String actorId) {
+        RequestContext context = get();
+        if (!"system".equals(context.actorType()) || !"control-plane".equals(context.actorId())) {
+            return;
+        }
+        set(context.correlationId(), actorType, actorId);
+    }
+
     public record RequestContext(String correlationId, String actorType, String actorId) {
     }
 }

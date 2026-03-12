@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 import com.qizlan.llm.gateway.gateway.security.ApiKeyAccessDeniedException;
 import com.qizlan.llm.gateway.gateway.security.GuardrailViolationException;
 import com.qizlan.llm.gateway.gateway.provider.UpstreamProviderException;
@@ -40,6 +41,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleGuardrail(GuardrailViolationException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ApiErrorResponse(true, 403, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode())
+                .body(new ApiErrorResponse(true, ex.getStatusCode().value(), ex.getReason() == null ? ex.getMessage() : ex.getReason()));
     }
 
     @ExceptionHandler(Exception.class)

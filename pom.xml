@@ -12,7 +12,7 @@
 
     <groupId>com.qizlan.llm</groupId>
     <artifactId>gateway</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.1-SNAPSHOT</version>
     <name>llmgatejava</name>
     <description>Spring Boot LLM Gateway</description>
 

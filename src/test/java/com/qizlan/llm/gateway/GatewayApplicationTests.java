@@ -773,6 +773,20 @@ class GatewayApplicationTests {
                 .andExpect(jsonPath("$.data[0].group_value").exists())
                 .andExpect(jsonPath("$.data[0].estimated_cost_micros_usd").value(org.hamcrest.Matchers.greaterThan(0)));
 
+        mockMvc.perform(post("/internal/costs/compact")
+                        .param("bucket", "day")
+                        .param("retention_days", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows_deleted").value(org.hamcrest.Matchers.greaterThan(0)));
+
+        mockMvc.perform(get("/costs/timeseries")
+                        .param("bucket", "day")
+                        .param("group_by", "provider")
+                        .param("organization_id", organizationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].group_value").exists())
+                .andExpect(jsonPath("$.data[0].estimated_cost_micros_usd").value(org.hamcrest.Matchers.greaterThan(0)));
+
         mockMvc.perform(get("/costs/summary")
                         .param("group_by", "provider")
                         .param("organization_id", organizationId)
@@ -916,7 +930,10 @@ class GatewayApplicationTests {
                         .param("provider", "openai"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].provider_id").value("openai"))
-                .andExpect(jsonPath("$.data[0].archived_mappings").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+                .andExpect(jsonPath("$.data[0].archived_mappings").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data[0].detail", containsString("OVERRIDE_MANUAL")))
+                .andExpect(jsonPath("$.data[0].detail", containsString("changes")))
+                .andExpect(jsonPath("$.data[0].detail", containsString("gpt-image-1")));
     }
 
     @Test
@@ -962,7 +979,7 @@ class GatewayApplicationTests {
                                 {
                                   "rule_type":"RATE",
                                   "effect":"LIMIT",
-                                  "pattern":"2/60/1"
+                                  "pattern":"1/60/1"
                                 }
                                 """))
                 .andExpect(status().isOk());
@@ -1271,7 +1288,8 @@ class GatewayApplicationTests {
         mockMvc.perform(get("/.well-known/oauth-authorization-server"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authorization_endpoint").exists())
-                .andExpect(jsonPath("$.token_endpoint").exists());
+                .andExpect(jsonPath("$.token_endpoint").exists())
+                .andExpect(jsonPath("$.revocation_endpoint").exists());
 
         mockMvc.perform(get("/.well-known/oauth-authorization-server/mcp"))
                 .andExpect(status().isOk())
@@ -1300,15 +1318,137 @@ class GatewayApplicationTests {
                 .andReturn();
         String code = read(authorizeResult, "/code");
 
-        mockMvc.perform(post("/oauth/token")
+        MvcResult authorizationCodeTokenResult = mockMvc.perform(post("/oauth/token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"grant_type":"authorization_code","code":"%s","scope":"mcp tools"}
                                 """.formatted(code)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").exists())
                 .andExpect(jsonPath("$.token_type").value("Bearer"))
-                .andExpect(jsonPath("$.client_id").value(clientId));
+                .andExpect(jsonPath("$.client_id").value(clientId))
+                .andReturn();
+        String mcpAccessToken = read(authorizationCodeTokenResult, "/access_token");
+
+        MvcResult clientCredentialsTokenResult = mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type":"client_credentials","client_id":"%s","client_secret":"%s","scope":"mcp admin"}
+                                """.formatted(clientId, clientSecret)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").value(""))
+                .andExpect(jsonPath("$.scope").value("mcp admin"))
+                .andExpect(jsonPath("$.client_id").value(clientId))
+                .andReturn();
+
+        MvcResult authorizationTokenResult = mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type":"authorization_code","code":"%s","scope":"mcp tools"}
+                                """.formatted(code)))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        org.junit.jupiter.api.Assertions.assertTrue(authorizationTokenResult.getResponse().getContentAsString().contains("already consumed"));
+
+        MvcResult authCodeFlowRegisterResult = mockMvc.perform(post("/oauth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"client_name":"Refresh Client","redirect_uri":"https://client.example/refresh"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String refreshClientId = read(authCodeFlowRegisterResult, "/client_id");
+        String refreshClientSecret = read(authCodeFlowRegisterResult, "/client_secret");
+
+        MvcResult refreshAuthorizeResult = mockMvc.perform(get("/oauth/authorize")
+                        .param("client_id", refreshClientId)
+                        .param("redirect_uri", "https://client.example/refresh")
+                        .param("state", "refresh"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String refreshCode = read(refreshAuthorizeResult, "/code");
+
+        MvcResult refreshableTokenResult = mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "grant_type":"authorization_code",
+                                  "code":"%s",
+                                  "client_id":"%s",
+                                  "client_secret":"%s",
+                                  "scope":"mcp tools"
+                                }
+                                """.formatted(refreshCode, refreshClientId, refreshClientSecret)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refresh_token").exists())
+                .andReturn();
+        String refreshToken = read(refreshableTokenResult, "/refresh_token");
+        String firstAccessToken = read(refreshableTokenResult, "/access_token");
+
+        MvcResult refreshedTokenResult = mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "grant_type":"refresh_token",
+                                  "refresh_token":"%s",
+                                  "client_id":"%s",
+                                  "client_secret":"%s"
+                                }
+                                """.formatted(refreshToken, refreshClientId, refreshClientSecret)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").exists())
+                .andExpect(jsonPath("$.client_id").value(refreshClientId))
+                .andReturn();
+        String rotatedRefreshToken = read(refreshedTokenResult, "/refresh_token");
+        String refreshedAccessToken = read(refreshedTokenResult, "/access_token");
+
+        org.junit.jupiter.api.Assertions.assertNotEquals(firstAccessToken, refreshedAccessToken);
+        org.junit.jupiter.api.Assertions.assertNotEquals(refreshToken, rotatedRefreshToken);
+
+        mockMvc.perform(post("/oauth/revoke")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"%s"}
+                                """.formatted(rotatedRefreshToken)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "grant_type":"refresh_token",
+                                  "refresh_token":"%s",
+                                  "client_id":"%s",
+                                  "client_secret":"%s"
+                                }
+                                """.formatted(rotatedRefreshToken, refreshClientId, refreshClientSecret)))
+                .andExpect(status().isBadRequest());
+
+        MvcResult rotateSecretResult = mockMvc.perform(post("/oauth/clients/" + refreshClientId + "/rotate-secret"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rotated").value(true))
+                .andReturn();
+        String newClientSecret = read(rotateSecretResult, "/client_secret");
+        org.junit.jupiter.api.Assertions.assertNotEquals(refreshClientSecret, newClientSecret);
+
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type":"client_credentials","client_id":"%s","client_secret":"%s","scope":"mcp admin"}
+                                """.formatted(refreshClientId, refreshClientSecret)))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type":"client_credentials","client_id":"%s","client_secret":"%s","scope":"mcp admin"}
+                                """.formatted(refreshClientId, newClientSecret)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.client_id").value(refreshClientId))
+                .andExpect(jsonPath("$.refresh_token").value(""));
 
         mockMvc.perform(post("/oauth/token")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1317,8 +1457,7 @@ class GatewayApplicationTests {
                                 """.formatted(clientId, clientSecret)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.access_token").exists())
-                .andExpect(jsonPath("$.scope").value("mcp admin"))
-                .andExpect(jsonPath("$.client_id").value(clientId));
+                .andExpect(jsonPath("$.access_token").value(org.hamcrest.Matchers.not(read(clientCredentialsTokenResult, "/access_token"))));
 
         mockMvc.perform(get("/mcp"))
                 .andExpect(status().isOk())
@@ -1370,6 +1509,18 @@ class GatewayApplicationTests {
                                   "arguments":{"model":"gpt-4o","prompt":"hello from mcp"}
                                 }
                                 """))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/mcp")
+                        .header("Authorization", "Bearer " + mcpAccessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method":"tools/call",
+                                  "name":"chat",
+                                  "arguments":{"model":"gpt-4o","prompt":"hello from mcp"}
+                                }
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tool").value("chat"))
                 .andExpect(jsonPath("$.result.choices[0].message.content").value("MCP says hello"));
@@ -1385,6 +1536,7 @@ class GatewayApplicationTests {
                 """));
 
         mockMvc.perform(post("/mcp")
+                        .header("Authorization", "Bearer " + mcpAccessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {

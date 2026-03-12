@@ -1,6 +1,7 @@
 package com.qizlan.llm.gateway.persistence.repository;
 
 import com.qizlan.llm.gateway.persistence.entity.CostAggregateEntity;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,4 +13,6 @@ public interface CostAggregateRepository extends JpaRepository<CostAggregateEnti
     CostAggregateEntity findTopByBucketTypeOrderByUpdatedAtDesc(String bucketType);
 
     void deleteByBucketType(String bucketType);
+
+    long deleteByBucketTypeAndBucketStartBefore(String bucketType, OffsetDateTime cutoff);
 }

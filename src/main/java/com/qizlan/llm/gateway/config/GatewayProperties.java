@@ -35,14 +35,16 @@ public record GatewayProperties(
 
     public record SyncProperties(
             boolean enabled,
-            long fixedDelayMillis
+            long fixedDelayMillis,
+            String conflictPolicy
     ) {
     }
 
     public record AggregationProperties(
             boolean enabled,
             long fixedDelayMillis,
-            long cacheTtlMillis
+            long cacheTtlMillis,
+            long retentionDays
     ) {
     }
 

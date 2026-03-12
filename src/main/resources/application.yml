@@ -56,10 +56,12 @@ llm:
     sync:
       enabled: false
       fixed-delay-millis: 3600000
+      conflict-policy: OVERRIDE_MANUAL
     aggregation:
       enabled: false
       fixed-delay-millis: 900000
       cache-ttl-millis: 30000
+      retention-days: 30
     probe:
       enabled: false
       fixed-delay-millis: 300000

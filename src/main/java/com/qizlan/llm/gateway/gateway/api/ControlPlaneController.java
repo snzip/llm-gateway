@@ -200,6 +200,17 @@ public class ControlPlaneController {
         return Map.of("rows", costAggregationWorkerService.recompute(bucket));
     }
 
+    @PostMapping("/internal/costs/compact")
+    public Map<String, Object> compactCosts(
+            @RequestParam(name = "bucket", required = false) String bucket,
+            @RequestParam(name = "retention_days", required = false) Long retentionDays
+    ) {
+        if (bucket == null || bucket.isBlank()) {
+            return costAggregationWorkerService.compactAll();
+        }
+        return Map.of("rows_deleted", costAggregationWorkerService.compact(bucket, retentionDays == null ? 30 : retentionDays));
+    }
+
     @PostMapping("/internal/models/sync")
     public Map<String, Object> syncModels(@RequestParam(name = "provider", required = false) String provider) {
         if (provider == null || provider.isBlank()) {

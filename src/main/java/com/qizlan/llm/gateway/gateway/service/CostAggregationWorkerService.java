@@ -43,10 +43,25 @@ public class CostAggregationWorkerService {
         recomputeAll();
     }
 
+    @Scheduled(fixedDelayString = "${llm.gateway.aggregation.fixed-delay-millis:900000}")
+    public void scheduledCompact() {
+        if (properties.aggregation() == null || !properties.aggregation().enabled()) {
+            return;
+        }
+        compactAll();
+    }
+
     public Map<String, Object> recomputeAll() {
         int hourly = recompute("hour");
         int daily = recompute("day");
         return Map.of("hour_rows", hourly, "day_rows", daily);
+    }
+
+    public Map<String, Object> compactAll() {
+        long retentionDays = properties.aggregation() == null ? 30 : properties.aggregation().retentionDays();
+        long hourly = compact("hour", retentionDays);
+        long daily = compact("day", retentionDays);
+        return Map.of("hour_rows_deleted", hourly, "day_rows_deleted", daily);
     }
 
     @Transactional
@@ -76,6 +91,17 @@ public class CostAggregationWorkerService {
                 .toList());
         costAggregationService.invalidateCache();
         return grouped.size();
+    }
+
+    @Transactional
+    public long compact(String bucketType, long retentionDays) {
+        String normalizedBucket = normalizeBucket(bucketType);
+        OffsetDateTime cutoff = OffsetDateTime.now().minusDays(Math.max(retentionDays, 0));
+        long deleted = costAggregateRepository.deleteByBucketTypeAndBucketStartBefore(normalizedBucket, cutoff);
+        if (deleted > 0) {
+            costAggregationService.invalidateCache();
+        }
+        return deleted;
     }
 
     private OffsetDateTime bucketStart(OffsetDateTime createdAt, String bucketType) {
