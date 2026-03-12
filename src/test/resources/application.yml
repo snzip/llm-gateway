@@ -1,0 +1,34 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+
+llm:
+  gateway:
+    api-key-header: Authorization
+    seed-api-key: test-api-key
+    providers:
+      mode: mock
+      openai:
+        enabled: false
+        base-url: http://localhost:18080
+        api-key: test-openai-key
+      anthropic:
+        enabled: false
+        base-url: http://localhost:18081
+        api-key: test-anthropic-key
+      google:
+        enabled: false
+        base-url: http://localhost:18082
+        api-key: test-google-key
+    routing:
+      failure-threshold: 1
+      cooldown-millis: 30000
+    sync:
+      enabled: false
+      fixed-delay-millis: 3600000

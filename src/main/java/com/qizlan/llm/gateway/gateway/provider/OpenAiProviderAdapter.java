@@ -1,0 +1,205 @@
+package com.qizlan.llm.gateway.gateway.provider;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.qizlan.llm.gateway.config.GatewayProperties;
+import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
+import com.qizlan.llm.gateway.gateway.dto.ImageDtos;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
+
+@Component
+public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
+
+    private final GatewayProperties.Endpoint endpoint;
+
+    public OpenAiProviderAdapter(GatewayProperties properties, ObjectMapper objectMapper) {
+        super(properties.providers().openai().baseUrl(), objectMapper);
+        this.endpoint = properties.providers().openai();
+    }
+
+    @Override
+    public String providerId() {
+        return "openai";
+    }
+
+    @Override
+    public ProviderChatResult complete(ChatCompletionRequest request, String providerModel) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", providerModel);
+            body.put("messages", toMessagePayload(request.messages()));
+            body.put("stream", false);
+            if (request.temperature() != null) {
+                body.put("temperature", request.temperature());
+            }
+            if (request.max_tokens() != null) {
+                body.put("max_tokens", request.max_tokens());
+            }
+            JsonNode root = restClient.post()
+                    .uri("/v1/chat/completions")
+                    .header("Authorization", "Bearer " + endpoint.apiKey())
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String content = readText(root, "/choices/0/message/content");
+            return new ProviderChatResult(
+                    providerId(),
+                    providerModel,
+                    content,
+                    false,
+                    readInt(root, "/usage/prompt_tokens"),
+                    readInt(root, "/usage/completion_tokens"),
+                    readInt(root, "/usage/total_tokens")
+            );
+        } catch (RestClientResponseException ex) {
+            throw mapException(providerId(), ex);
+        }
+    }
+
+    @Override
+    public ImageDtos.ImageResponse generateImage(ImageDtos.ImageGenerationRequest request, String providerModel) {
+        try {
+            JsonNode root = restClient.post()
+                    .uri("/v1/images/generations")
+                    .header("Authorization", "Bearer " + endpoint.apiKey())
+                    .body(Map.of(
+                            "model", providerModel,
+                            "prompt", request.prompt(),
+                            "n", request.n() == null ? 1 : request.n()
+                    ))
+                    .retrieve()
+                    .body(JsonNode.class);
+            return mapImageResponse(root, request.prompt());
+        } catch (RestClientResponseException ex) {
+            throw mapException(providerId(), ex);
+        }
+    }
+
+    @Override
+    public ImageDtos.ImageResponse editImage(ImageDtos.ImageEditRequest request, String providerModel) {
+        try {
+            JsonNode root = restClient.post()
+                    .uri("/v1/images/edits")
+                    .header("Authorization", "Bearer " + endpoint.apiKey())
+                    .body(Map.of(
+                            "model", providerModel,
+                            "prompt", request.prompt(),
+                            "n", request.n() == null ? 1 : request.n()
+                    ))
+                    .retrieve()
+                    .body(JsonNode.class);
+            return mapImageResponse(root, request.prompt());
+        } catch (RestClientResponseException ex) {
+            throw mapException(providerId(), ex);
+        }
+    }
+
+    private ImageDtos.ImageResponse mapImageResponse(JsonNode root, String fallbackPrompt) {
+        JsonNode data = root.path("data");
+        String b64 = data.isArray() && !data.isEmpty() ? data.get(0).path("b64_json").asText("ZmFrZS1pbWFnZQ==") : "ZmFrZS1pbWFnZQ==";
+        String revisedPrompt = data.isArray() && !data.isEmpty() ? data.get(0).path("revised_prompt").asText(fallbackPrompt) : fallbackPrompt;
+        return new ImageDtos.ImageResponse(
+                root.path("created").asLong(java.time.Instant.now().getEpochSecond()),
+                List.of(new ImageDtos.ImageData(b64, revisedPrompt))
+        );
+    }
+
+    @Override
+    public List<ProviderModelDescriptor> listModels() {
+        try {
+            JsonNode root = restClient.get()
+                    .uri("/v1/models")
+                    .header("Authorization", "Bearer " + endpoint.apiKey())
+                    .retrieve()
+                    .body(JsonNode.class);
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                return List.of();
+            }
+            return java.util.stream.StreamSupport.stream(data.spliterator(), false)
+                    .map(node -> {
+                        String id = node.path("id").asText();
+                        boolean image = id.contains("image");
+                        return new ProviderModelDescriptor(
+                                providerId(),
+                                id,
+                                id,
+                                id,
+                                providerId(),
+                                true,
+                                id.contains("vision") || id.contains("4o"),
+                                !image,
+                                !image,
+                                image,
+                                10,
+                                inferContextWindow(id),
+                                inferInputCost(id, image),
+                                inferOutputCost(id, image)
+                        );
+                    })
+                    .toList();
+        } catch (RestClientResponseException ex) {
+            throw mapException(providerId(), ex);
+        }
+    }
+
+    @Override
+    public void streamChat(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", providerModel);
+        body.set("messages", objectMapper.valueToTree(toMessagePayload(request.messages())));
+        body.put("stream", true);
+        if (request.temperature() != null) {
+            body.put("temperature", request.temperature());
+        }
+        if (request.max_tokens() != null) {
+            body.put("max_tokens", request.max_tokens());
+        }
+        streamOpenAiSse(buildJsonRequest("/v1/chat/completions", Map.of("Authorization", "Bearer " + endpoint.apiKey()), body), consumer, providerId());
+    }
+
+    private int inferContextWindow(String id) {
+        if (id.contains("4.1")) {
+            return 1_000_000;
+        }
+        if (id.contains("4o")) {
+            return 128_000;
+        }
+        if (id.contains("image")) {
+            return 32_000;
+        }
+        return 128_000;
+    }
+
+    private long inferInputCost(String id, boolean image) {
+        if (image) {
+            return 0L;
+        }
+        if (id.contains("4.1")) {
+            return 4L;
+        }
+        if (id.contains("4o")) {
+            return 5L;
+        }
+        return 5L;
+    }
+
+    private long inferOutputCost(String id, boolean image) {
+        if (image) {
+            return 25_000L;
+        }
+        if (id.contains("4.1")) {
+            return 12L;
+        }
+        if (id.contains("4o")) {
+            return 15L;
+        }
+        return 15L;
+    }
+}

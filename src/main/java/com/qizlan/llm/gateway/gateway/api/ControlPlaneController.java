@@ -1,0 +1,431 @@
+package com.qizlan.llm.gateway.gateway.api;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qizlan.llm.gateway.gateway.service.ControlPlaneService;
+import com.qizlan.llm.gateway.gateway.service.CostAggregationService;
+import com.qizlan.llm.gateway.gateway.service.CostAggregationWorkerService;
+import com.qizlan.llm.gateway.gateway.service.ModelSyncService;
+import com.qizlan.llm.gateway.gateway.service.RequestLogService;
+import com.qizlan.llm.gateway.gateway.service.AuditLogService;
+import com.qizlan.llm.gateway.gateway.service.GuardrailService;
+import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
+import com.qizlan.llm.gateway.persistence.entity.ApiKeyIamRuleEntity;
+import com.qizlan.llm.gateway.persistence.entity.AuditLogEntity;
+import com.qizlan.llm.gateway.persistence.entity.GuardrailRuleEntity;
+import com.qizlan.llm.gateway.persistence.entity.GuardrailViolationEntity;
+import com.qizlan.llm.gateway.persistence.entity.OrganizationEntity;
+import com.qizlan.llm.gateway.persistence.entity.ProjectEntity;
+import com.qizlan.llm.gateway.persistence.entity.RequestLogEntity;
+import jakarta.validation.constraints.NotBlank;
+import java.util.List;
+import java.util.Map;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping
+public class ControlPlaneController {
+
+    private final ControlPlaneService controlPlaneService;
+    private final RequestLogService requestLogService;
+    private final CostAggregationService costAggregationService;
+    private final CostAggregationWorkerService costAggregationWorkerService;
+    private final AuditLogService auditLogService;
+    private final ModelSyncService modelSyncService;
+    private final GuardrailService guardrailService;
+    private final ObjectMapper objectMapper;
+
+    public ControlPlaneController(
+            ControlPlaneService controlPlaneService,
+            RequestLogService requestLogService,
+            CostAggregationService costAggregationService,
+            CostAggregationWorkerService costAggregationWorkerService,
+            AuditLogService auditLogService,
+            ModelSyncService modelSyncService,
+            GuardrailService guardrailService,
+            ObjectMapper objectMapper
+    ) {
+        this.controlPlaneService = controlPlaneService;
+        this.requestLogService = requestLogService;
+        this.costAggregationService = costAggregationService;
+        this.costAggregationWorkerService = costAggregationWorkerService;
+        this.auditLogService = auditLogService;
+        this.modelSyncService = modelSyncService;
+        this.guardrailService = guardrailService;
+        this.objectMapper = objectMapper;
+    }
+
+    @GetMapping("/orgs")
+    public List<Map<String, Object>> listOrganizations() {
+        return controlPlaneService.listOrganizations().stream().map(this::toOrganization).toList();
+    }
+
+    @PostMapping("/orgs")
+    public Map<String, Object> createOrganization(@RequestBody OrganizationUpsertRequest request) {
+        return toOrganization(controlPlaneService.createOrganization(request.name()));
+    }
+
+    @PatchMapping("/orgs/{id}")
+    public Map<String, Object> updateOrganization(@PathVariable String id, @RequestBody OrganizationUpsertRequest request) {
+        return toOrganization(controlPlaneService.updateOrganization(id, request.name()));
+    }
+
+    @DeleteMapping("/orgs/{id}")
+    public ResponseEntity<Void> deleteOrganization(@PathVariable String id) {
+        controlPlaneService.deleteOrganization(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/projects")
+    public List<Map<String, Object>> listProjects() {
+        return controlPlaneService.listProjects().stream().map(this::toProject).toList();
+    }
+
+    @PostMapping("/projects")
+    public Map<String, Object> createProject(@RequestBody ProjectUpsertRequest request) {
+        return toProject(controlPlaneService.createProject(request.organizationId(), request.name()));
+    }
+
+    @GetMapping("/projects/{id}")
+    public Map<String, Object> getProject(@PathVariable String id) {
+        return toProject(controlPlaneService.getProject(id));
+    }
+
+    @PatchMapping("/projects/{id}")
+    public Map<String, Object> updateProject(@PathVariable String id, @RequestBody ProjectRenameRequest request) {
+        return toProject(controlPlaneService.updateProject(id, request.name()));
+    }
+
+    @DeleteMapping("/projects/{id}")
+    public ResponseEntity<Void> deleteProject(@PathVariable String id) {
+        controlPlaneService.deleteProject(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/keys/api")
+    public Map<String, Object> createApiKey(@RequestBody ApiKeyCreateRequest request) {
+        ControlPlaneService.ApiKeyCreateResult result = controlPlaneService.createApiKey(request.organizationId(), request.projectId(), request.name());
+        return Map.of(
+                "id", result.entity().getId(),
+                "token", result.rawToken(),
+                "token_prefix", result.entity().getTokenPrefix(),
+                "name", result.entity().getName(),
+                "project_id", result.entity().getProject().getId(),
+                "organization_id", result.entity().getOrganization().getId()
+        );
+    }
+
+    @GetMapping("/keys/api")
+    public List<Map<String, Object>> listApiKeys() {
+        return controlPlaneService.listApiKeys().stream().map(this::toApiKey).toList();
+    }
+
+    @PatchMapping("/keys/api/{id}")
+    public Map<String, Object> updateApiKey(@PathVariable String id, @RequestBody ApiKeyPatchRequest request) {
+        return toApiKey(controlPlaneService.updateApiKey(id, request.name(), request.active(), request.budget_micros_usd(), request.requests_per_minute_limit()));
+    }
+
+    @DeleteMapping("/keys/api/{id}")
+    public ResponseEntity<Void> deleteApiKey(@PathVariable String id) {
+        controlPlaneService.revokeApiKey(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/keys/api/{id}/iam")
+    public Map<String, Object> createIamRule(@PathVariable String id, @RequestBody IamRuleCreateRequest request) {
+        return toIamRule(controlPlaneService.createIamRule(id, request.rule_type(), request.effect(), request.pattern()));
+    }
+
+    @GetMapping("/keys/api/{id}/iam")
+    public List<Map<String, Object>> listIamRules(@PathVariable String id) {
+        return controlPlaneService.listIamRules(id).stream().map(this::toIamRule).toList();
+    }
+
+    @PatchMapping("/keys/api/{id}/iam/{ruleId}")
+    public Map<String, Object> updateIamRule(@PathVariable String id, @PathVariable String ruleId, @RequestBody IamRulePatchRequest request) {
+        return toIamRule(controlPlaneService.updateIamRule(id, ruleId, request.rule_type(), request.effect(), request.pattern(), request.active()));
+    }
+
+    @DeleteMapping("/keys/api/{id}/iam/{ruleId}")
+    public ResponseEntity<Void> deleteIamRule(@PathVariable String id, @PathVariable String ruleId) {
+        controlPlaneService.deleteIamRule(id, ruleId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/logs")
+    public List<Map<String, Object>> listLogs() {
+        return requestLogService.list().stream().map(this::toLog).toList();
+    }
+
+    @GetMapping("/logs/{id}")
+    public Map<String, Object> getLog(@PathVariable String id) {
+        return toLog(requestLogService.get(id));
+    }
+
+    @GetMapping("/costs/summary")
+    public Map<String, Object> costSummary(
+            @RequestParam(name = "group_by", required = false) String groupBy,
+            @RequestParam(name = "organization_id", required = false) String organizationId,
+            @RequestParam(name = "project_id", required = false) String projectId,
+            @RequestParam(name = "path", required = false) String path
+    ) {
+        return Map.of("data", costAggregationService.summarize(groupBy, organizationId, projectId, path));
+    }
+
+    @GetMapping("/costs/timeseries")
+    public Map<String, Object> costTimeseries(
+            @RequestParam(name = "bucket", required = false) String bucket,
+            @RequestParam(name = "group_by", required = false) String groupBy,
+            @RequestParam(name = "organization_id", required = false) String organizationId,
+            @RequestParam(name = "project_id", required = false) String projectId,
+            @RequestParam(name = "path", required = false) String path
+    ) {
+        return Map.of("data", costAggregationService.timeseries(bucket, groupBy, organizationId, projectId, path));
+    }
+
+    @PostMapping("/internal/costs/recompute")
+    public Map<String, Object> recomputeCosts(@RequestParam(name = "bucket", required = false) String bucket) {
+        if (bucket == null || bucket.isBlank()) {
+            return costAggregationWorkerService.recomputeAll();
+        }
+        return Map.of("rows", costAggregationWorkerService.recompute(bucket));
+    }
+
+    @PostMapping("/internal/models/sync")
+    public Map<String, Object> syncModels(@RequestParam(name = "provider", required = false) String provider) {
+        if (provider == null || provider.isBlank()) {
+            return modelSyncService.syncAll();
+        }
+        return Map.of("synced_mappings", modelSyncService.syncProvider(provider));
+    }
+
+    @GetMapping("/internal/models/sync/history")
+    public Map<String, Object> syncHistory(@RequestParam(name = "provider", required = false) String provider) {
+        return Map.of("data", modelSyncService.history(provider).stream().map(history -> Map.of(
+                "id", history.getId(),
+                "provider_id", history.getProviderId(),
+                "status", history.getStatus(),
+                "discovered_models", history.getDiscoveredModels(),
+                "synced_mappings", history.getSyncedMappings(),
+                "archived_mappings", history.getArchivedMappings(),
+                "detail", history.getDetail(),
+                "created_at", history.getCreatedAt()
+        )).toList());
+    }
+
+    @GetMapping("/guardrails/rules/{organizationId}")
+    public Map<String, Object> guardrailRules(@PathVariable String organizationId) {
+        return Map.of("data", guardrailService.listRules(organizationId).stream().map(this::toGuardrailRule).toList());
+    }
+
+    @PostMapping("/guardrails/rules/{organizationId}")
+    public Map<String, Object> createGuardrailRule(@PathVariable String organizationId, @RequestBody GuardrailRuleCreateRequest request) {
+        return toGuardrailRule(guardrailService.createRule(organizationId, request.name(), request.rule_type(), request.pattern(), request.action()));
+    }
+
+    @PatchMapping("/guardrails/rules/{organizationId}/{ruleId}")
+    public Map<String, Object> updateGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId, @RequestBody GuardrailRulePatchRequest request) {
+        return toGuardrailRule(guardrailService.updateRule(organizationId, ruleId, request.name(), request.rule_type(), request.pattern(), request.action(), request.active()));
+    }
+
+    @DeleteMapping("/guardrails/rules/{organizationId}/{ruleId}")
+    public ResponseEntity<Void> deleteGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId) {
+        guardrailService.deleteRule(organizationId, ruleId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/guardrails/violations/{organizationId}")
+    public Map<String, Object> guardrailViolations(@PathVariable String organizationId) {
+        return Map.of("data", guardrailService.listViolations(organizationId).stream().map(this::toGuardrailViolation).toList());
+    }
+
+    @GetMapping("/guardrails/stats/{organizationId}")
+    public Map<String, Object> guardrailStats(@PathVariable String organizationId) {
+        return Map.of("data", guardrailService.stats(organizationId));
+    }
+
+    @PostMapping("/guardrails/test/{organizationId}")
+    public Map<String, Object> guardrailTest(@PathVariable String organizationId, @RequestBody GuardrailTestRequest request) {
+        return guardrailService.test(organizationId, request.text());
+    }
+
+    @GetMapping("/guardrails/system-rules")
+    public Map<String, Object> guardrailSystemRules() {
+        return Map.of("data", List.of(Map.of(
+                "rule_type", "KEYWORD",
+                "actions", List.of("BLOCK", "LOG"),
+                "description", "Case-insensitive keyword match"
+        )));
+    }
+
+    @GetMapping("/audit-logs/{organizationId}")
+    public Map<String, Object> auditLogs(@PathVariable String organizationId) {
+        return Map.of("data", auditLogService.list(organizationId).stream().map(this::toAuditLog).toList());
+    }
+
+    @GetMapping("/audit-logs/{organizationId}/filters")
+    public Map<String, Object> auditLogFilters(@PathVariable String organizationId) {
+        return Map.of("data", auditLogService.filters(organizationId));
+    }
+
+    private Map<String, Object> toOrganization(OrganizationEntity entity) {
+        return Map.of("id", entity.getId(), "name", entity.getName(), "active", entity.isActive());
+    }
+
+    private Map<String, Object> toProject(ProjectEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "name", entity.getName(),
+                "organization_id", entity.getOrganization().getId(),
+                "active", entity.isActive()
+        );
+    }
+
+    private Map<String, Object> toApiKey(ApiKeyEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "token_prefix", entity.getTokenPrefix(),
+                "name", entity.getName(),
+                "active", entity.isActive(),
+                "organization_id", entity.getOrganization() == null ? "" : entity.getOrganization().getId(),
+                "project_id", entity.getProject() == null ? "" : entity.getProject().getId(),
+                "spent_micros_usd", entity.getSpentMicrosUsd(),
+                "budget_micros_usd", entity.getBudgetMicrosUsd(),
+                "requests_per_minute_limit", entity.getRequestsPerMinuteLimit()
+        );
+    }
+
+    private Map<String, Object> toLog(RequestLogEntity entity) {
+        return Map.ofEntries(
+                Map.entry("id", entity.getId()),
+                Map.entry("path", entity.getPath()),
+                Map.entry("requested_model", entity.getRequestedModel()),
+                Map.entry("provider_id", entity.getProviderId()),
+                Map.entry("http_status", entity.getHttpStatus()),
+                Map.entry("latency_ms", entity.getLatencyMs()),
+                Map.entry("prompt_tokens", entity.getPromptTokens()),
+                Map.entry("completion_tokens", entity.getCompletionTokens()),
+                Map.entry("total_tokens", entity.getTotalTokens()),
+                Map.entry("estimated_cost_micros_usd", entity.getEstimatedCostMicrosUsd()),
+                Map.entry("api_key_id", entity.getApiKeyId() == null ? "" : entity.getApiKeyId()),
+                Map.entry("organization_id", entity.getOrganizationId() == null ? "" : entity.getOrganizationId()),
+                Map.entry("project_id", entity.getProjectId() == null ? "" : entity.getProjectId()),
+                Map.entry("routing_trace", parseRoutingTrace(entity.getRoutingTrace()))
+        );
+    }
+
+    private Map<String, Object> toIamRule(ApiKeyIamRuleEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "api_key_id", entity.getApiKey().getId(),
+                "rule_type", entity.getRuleType(),
+                "effect", entity.getEffect(),
+                "pattern", entity.getPattern(),
+                "active", entity.isActive()
+        );
+    }
+
+    private Map<String, Object> toAuditLog(AuditLogEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "organization_id", entity.getOrganizationId(),
+                "actor_type", entity.getActorType(),
+                "actor_id", entity.getActorId(),
+                "correlation_id", entity.getCorrelationId(),
+                "action", entity.getAction(),
+                "resource_type", entity.getResourceType(),
+                "resource_id", entity.getResourceId(),
+                "detail", parseJsonObject(entity.getDetailJson()),
+                "created_at", entity.getCreatedAt().toString()
+        );
+    }
+
+    private Map<String, Object> toGuardrailRule(GuardrailRuleEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "organization_id", entity.getOrganizationId(),
+                "name", entity.getName(),
+                "rule_type", entity.getRuleType(),
+                "pattern", entity.getPattern(),
+                "action", entity.getAction(),
+                "active", entity.isActive()
+        );
+    }
+
+    private Map<String, Object> toGuardrailViolation(GuardrailViolationEntity entity) {
+        return Map.of(
+                "id", entity.getId(),
+                "organization_id", entity.getOrganizationId(),
+                "rule_id", entity.getRuleId(),
+                "rule_name", entity.getRuleName(),
+                "path", entity.getPath(),
+                "action", entity.getAction(),
+                "matched_text", entity.getMatchedText(),
+                "api_key_id", entity.getApiKeyId() == null ? "" : entity.getApiKeyId(),
+                "created_at", entity.getCreatedAt().toString()
+        );
+    }
+
+    private Object parseRoutingTrace(String routingTrace) {
+        if (routingTrace == null || routingTrace.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(routingTrace, new TypeReference<List<Map<String, Object>>>() {
+            });
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private Object parseJsonObject(String value) {
+        if (value == null || value.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(value, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception ex) {
+            return Map.of();
+        }
+    }
+
+    public record OrganizationUpsertRequest(@NotBlank String name) {
+    }
+
+    public record ProjectUpsertRequest(@NotBlank String organizationId, @NotBlank String name) {
+    }
+
+    public record ProjectRenameRequest(@NotBlank String name) {
+    }
+
+    public record ApiKeyCreateRequest(@NotBlank String organizationId, @NotBlank String projectId, @NotBlank String name) {
+    }
+
+    public record ApiKeyPatchRequest(String name, Boolean active, Long budget_micros_usd, Integer requests_per_minute_limit) {
+    }
+
+    public record IamRuleCreateRequest(@NotBlank String rule_type, @NotBlank String effect, @NotBlank String pattern) {
+    }
+
+    public record IamRulePatchRequest(String rule_type, String effect, String pattern, Boolean active) {
+    }
+
+    public record GuardrailRuleCreateRequest(@NotBlank String name, @NotBlank String rule_type, @NotBlank String pattern, @NotBlank String action) {
+    }
+
+    public record GuardrailRulePatchRequest(String name, String rule_type, String pattern, String action, Boolean active) {
+    }
+
+    public record GuardrailTestRequest(@NotBlank String text) {
+    }
+}
