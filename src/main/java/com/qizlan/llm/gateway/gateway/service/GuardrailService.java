@@ -31,7 +31,7 @@ public class GuardrailService {
     public GuardrailRuleEntity createRule(String organizationId, String name, String ruleType, String pattern, String action) {
         GuardrailRuleEntity entity = new GuardrailRuleEntity(organizationId, name, normalizeType(ruleType), pattern, normalizeAction(action), true);
         GuardrailRuleEntity saved = guardrailRuleRepository.save(entity);
-        auditLogService.record(organizationId, "guardrail_rule.create", "guardrail_rule", saved.getId(), Map.of(
+        auditLogService.record(organizationId, "guardrail_rule.create", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
                 "name", saved.getName(),
                 "rule_type", saved.getRuleType(),
                 "pattern", saved.getPattern(),
@@ -63,7 +63,7 @@ public class GuardrailService {
             entity.setActive(active);
         }
         GuardrailRuleEntity saved = guardrailRuleRepository.save(entity);
-        auditLogService.record(organizationId, "guardrail_rule.update", "guardrail_rule", saved.getId(), Map.of(
+        auditLogService.record(organizationId, "guardrail_rule.update", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
                 "name", saved.getName(),
                 "rule_type", saved.getRuleType(),
                 "pattern", saved.getPattern(),
@@ -79,7 +79,7 @@ public class GuardrailService {
         if (!entity.getOrganizationId().equals(organizationId)) {
             throw new IllegalArgumentException("Guardrail rule does not belong to organization: " + organizationId);
         }
-        auditLogService.record(organizationId, "guardrail_rule.delete", "guardrail_rule", entity.getId(), Map.of(
+        auditLogService.record(organizationId, "guardrail_rule.delete", "guardrail_rule", entity.getId(), "organization", organizationId, Map.of(
                 "name", entity.getName(),
                 "rule_type", entity.getRuleType(),
                 "pattern", entity.getPattern(),

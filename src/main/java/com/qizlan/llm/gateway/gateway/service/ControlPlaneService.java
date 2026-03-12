@@ -45,7 +45,7 @@ public class ControlPlaneService {
 
     public OrganizationEntity createOrganization(String name) {
         OrganizationEntity entity = organizationRepository.save(new OrganizationEntity(name));
-        auditLogService.record(entity.getId(), "organization.create", "organization", entity.getId(), Map.of(
+        auditLogService.record(entity.getId(), "organization.create", "organization", entity.getId(), null, null, Map.of(
                 "name", entity.getName(),
                 "active", entity.isActive()
         ));
@@ -57,7 +57,7 @@ public class ControlPlaneService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown organization: " + id));
         entity.setName(name);
         OrganizationEntity saved = organizationRepository.save(entity);
-        auditLogService.record(saved.getId(), "organization.update", "organization", saved.getId(), Map.of(
+        auditLogService.record(saved.getId(), "organization.update", "organization", saved.getId(), null, null, Map.of(
                 "name", saved.getName(),
                 "active", saved.isActive()
         ));
@@ -69,7 +69,7 @@ public class ControlPlaneService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown organization: " + id));
         entity.setActive(false);
         organizationRepository.save(entity);
-        auditLogService.record(entity.getId(), "organization.delete", "organization", entity.getId(), Map.of(
+        auditLogService.record(entity.getId(), "organization.delete", "organization", entity.getId(), null, null, Map.of(
                 "name", entity.getName(),
                 "active", entity.isActive()
         ));
@@ -79,7 +79,7 @@ public class ControlPlaneService {
         OrganizationEntity organization = organizationRepository.findById(organizationId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown organization: " + organizationId));
         ProjectEntity entity = projectRepository.save(new ProjectEntity(name, organization));
-        auditLogService.record(organization.getId(), "project.create", "project", entity.getId(), Map.of(
+        auditLogService.record(organization.getId(), "project.create", "project", entity.getId(), "organization", organization.getId(), Map.of(
                 "name", entity.getName(),
                 "organization_id", organization.getId(),
                 "active", entity.isActive()
@@ -100,7 +100,7 @@ public class ControlPlaneService {
         ProjectEntity entity = getProject(id);
         entity.setName(name);
         ProjectEntity saved = projectRepository.save(entity);
-        auditLogService.record(saved.getOrganization().getId(), "project.update", "project", saved.getId(), Map.of(
+        auditLogService.record(saved.getOrganization().getId(), "project.update", "project", saved.getId(), "organization", saved.getOrganization().getId(), Map.of(
                 "name", saved.getName(),
                 "organization_id", saved.getOrganization().getId(),
                 "active", saved.isActive()
@@ -112,7 +112,7 @@ public class ControlPlaneService {
         ProjectEntity entity = getProject(id);
         entity.setActive(false);
         projectRepository.save(entity);
-        auditLogService.record(entity.getOrganization().getId(), "project.delete", "project", entity.getId(), Map.of(
+        auditLogService.record(entity.getOrganization().getId(), "project.delete", "project", entity.getId(), "organization", entity.getOrganization().getId(), Map.of(
                 "name", entity.getName(),
                 "organization_id", entity.getOrganization().getId(),
                 "active", entity.isActive()
@@ -134,7 +134,7 @@ public class ControlPlaneService {
                 project
         );
         apiKeyRepository.save(entity);
-        auditLogService.record(organization.getId(), "api_key.create", "api_key", entity.getId(), Map.of(
+        auditLogService.record(organization.getId(), "api_key.create", "api_key", entity.getId(), "project", project.getId(), Map.of(
                 "name", entity.getName(),
                 "project_id", project.getId(),
                 "token_prefix", entity.getTokenPrefix(),
@@ -167,7 +167,7 @@ public class ControlPlaneService {
             entity.setRequestsPerMinuteLimit(requestsPerMinuteLimit);
         }
         ApiKeyEntity saved = apiKeyRepository.save(entity);
-        auditLogService.record(saved.getOrganization() == null ? "" : saved.getOrganization().getId(), "api_key.update", "api_key", saved.getId(), Map.of(
+        auditLogService.record(saved.getOrganization() == null ? "" : saved.getOrganization().getId(), "api_key.update", "api_key", saved.getId(), "project", saved.getProject() == null ? "" : saved.getProject().getId(), Map.of(
                 "name", saved.getName(),
                 "project_id", saved.getProject() == null ? "" : saved.getProject().getId(),
                 "token_prefix", saved.getTokenPrefix(),
@@ -183,7 +183,7 @@ public class ControlPlaneService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown api key: " + id));
         entity.setActive(false);
         apiKeyRepository.save(entity);
-        auditLogService.record(entity.getOrganization() == null ? "" : entity.getOrganization().getId(), "api_key.delete", "api_key", entity.getId(), Map.of(
+        auditLogService.record(entity.getOrganization() == null ? "" : entity.getOrganization().getId(), "api_key.delete", "api_key", entity.getId(), "project", entity.getProject() == null ? "" : entity.getProject().getId(), Map.of(
                 "name", entity.getName(),
                 "project_id", entity.getProject() == null ? "" : entity.getProject().getId(),
                 "token_prefix", entity.getTokenPrefix(),
@@ -197,7 +197,7 @@ public class ControlPlaneService {
         String organizationId = apiKey.getOrganization() == null ? "" : apiKey.getOrganization().getId();
         ApiKeyIamRuleEntity entity = new ApiKeyIamRuleEntity(apiKey, normalizeRuleType(ruleType), normalizeEffect(effect), pattern, true);
         ApiKeyIamRuleEntity saved = apiKeyIamRuleRepository.save(entity);
-        auditLogService.record(organizationId, "iam_rule.create", "iam_rule", saved.getId(), Map.of(
+        auditLogService.record(organizationId, "iam_rule.create", "iam_rule", saved.getId(), "api_key", apiKey.getId(), Map.of(
                 "api_key_id", apiKey.getId(),
                 "rule_type", saved.getRuleType(),
                 "effect", saved.getEffect(),
@@ -234,7 +234,7 @@ public class ControlPlaneService {
             entity.setActive(active);
         }
         ApiKeyIamRuleEntity saved = apiKeyIamRuleRepository.save(entity);
-        auditLogService.record(organizationId, "iam_rule.update", "iam_rule", saved.getId(), Map.of(
+        auditLogService.record(organizationId, "iam_rule.update", "iam_rule", saved.getId(), "api_key", boundApiKeyId, Map.of(
                 "api_key_id", boundApiKeyId,
                 "rule_type", saved.getRuleType(),
                 "effect", saved.getEffect(),
@@ -253,7 +253,7 @@ public class ControlPlaneService {
         }
         String organizationId = entity.getApiKey().getOrganization() == null ? "" : entity.getApiKey().getOrganization().getId();
         String boundApiKeyId = entity.getApiKey().getId();
-        auditLogService.record(organizationId, "iam_rule.delete", "iam_rule", entity.getId(), Map.of(
+        auditLogService.record(organizationId, "iam_rule.delete", "iam_rule", entity.getId(), "api_key", boundApiKeyId, Map.of(
                 "api_key_id", boundApiKeyId,
                 "rule_type", entity.getRuleType(),
                 "effect", entity.getEffect(),

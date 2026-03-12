@@ -335,17 +335,19 @@ public class ControlPlaneController {
     }
 
     private Map<String, Object> toAuditLog(AuditLogEntity entity) {
-        return Map.of(
-                "id", entity.getId(),
-                "organization_id", entity.getOrganizationId(),
-                "actor_type", entity.getActorType(),
-                "actor_id", entity.getActorId(),
-                "correlation_id", entity.getCorrelationId(),
-                "action", entity.getAction(),
-                "resource_type", entity.getResourceType(),
-                "resource_id", entity.getResourceId(),
-                "detail", parseJsonObject(entity.getDetailJson()),
-                "created_at", entity.getCreatedAt().toString()
+        return Map.ofEntries(
+                Map.entry("id", entity.getId()),
+                Map.entry("organization_id", entity.getOrganizationId()),
+                Map.entry("actor_type", entity.getActorType()),
+                Map.entry("actor_id", entity.getActorId()),
+                Map.entry("correlation_id", entity.getCorrelationId()),
+                Map.entry("action", entity.getAction()),
+                Map.entry("resource_type", entity.getResourceType()),
+                Map.entry("resource_id", entity.getResourceId()),
+                Map.entry("parent_resource_type", entity.getParentResourceType() == null ? "" : entity.getParentResourceType()),
+                Map.entry("parent_resource_id", entity.getParentResourceId() == null ? "" : entity.getParentResourceId()),
+                Map.entry("detail", parseJsonObject(entity.getDetailJson())),
+                Map.entry("created_at", entity.getCreatedAt().toString())
         );
     }
 

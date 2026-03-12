@@ -23,6 +23,18 @@ public class AuditLogService {
     }
 
     public void record(String organizationId, String action, String resourceType, String resourceId, Map<String, Object> detail) {
+        record(organizationId, action, resourceType, resourceId, null, null, detail);
+    }
+
+    public void record(
+            String organizationId,
+            String action,
+            String resourceType,
+            String resourceId,
+            String parentResourceType,
+            String parentResourceId,
+            Map<String, Object> detail
+    ) {
         if (organizationId == null || organizationId.isBlank()) {
             return;
         }
@@ -34,6 +46,8 @@ public class AuditLogService {
                 action,
                 resourceType,
                 resourceId,
+                parentResourceType,
+                parentResourceId,
                 serialize(detail),
                 context.correlationId()
         );

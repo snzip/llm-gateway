@@ -48,11 +48,8 @@ public class ApiKeyAuthInterceptor implements HandlerInterceptor {
         try {
             iamRuleService.assertBudgetAllowed(apiKey);
             iamRuleService.assertPathAllowed(apiKey, request.getRequestURI());
-            int dynamicRateLimit = iamRuleService.resolveRateLimit(apiKey);
-            if (dynamicRateLimit > 0) {
-                apiKey.setRequestsPerMinuteLimit(dynamicRateLimit);
-            }
-            apiKeyRateLimitService.assertAllowed(apiKey);
+            IamRuleService.RateLimitPolicy rateLimitPolicy = iamRuleService.resolveRateLimit(apiKey);
+            apiKeyRateLimitService.assertAllowed(apiKey, rateLimitPolicy);
         } catch (ApiKeyAccessDeniedException ex) {
             int status = ex.getMessage().contains("rate limit") ? 429 : HttpServletResponse.SC_FORBIDDEN;
             response.sendError(status, ex.getMessage());

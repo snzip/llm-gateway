@@ -861,7 +861,9 @@ class GatewayApplicationTests {
                 .andExpect(jsonPath("$.data[?(@.action=='api_key.update')]").exists())
                 .andExpect(jsonPath("$.data[?(@.action=='iam_rule.delete')]").exists())
                 .andExpect(jsonPath("$.data[?(@.correlation_id=='audit-corr-1')]").exists())
-                .andExpect(jsonPath("$.data[?(@.actor_type=='admin' && @.actor_id=='tester')]").exists());
+                .andExpect(jsonPath("$.data[?(@.actor_type=='admin' && @.actor_id=='tester')]").exists())
+                .andExpect(jsonPath("$.data[?(@.action=='api_key.create' && @.parent_resource_type=='project' && @.parent_resource_id=='" + projectId + "')]").exists())
+                .andExpect(jsonPath("$.data[?(@.action=='iam_rule.create' && @.parent_resource_type=='api_key' && @.parent_resource_id=='" + apiKeyId + "')]").exists());
 
         mockMvc.perform(get("/audit-logs/" + organizationId + "/filters"))
                 .andExpect(status().isOk())
@@ -960,7 +962,7 @@ class GatewayApplicationTests {
                                 {
                                   "rule_type":"RATE",
                                   "effect":"LIMIT",
-                                  "pattern":"1"
+                                  "pattern":"2/60/1"
                                 }
                                 """))
                 .andExpect(status().isOk());
@@ -1235,17 +1237,33 @@ class GatewayApplicationTests {
                   ]
                 }
                 """));
+        OPENAI_RESPONSES.add(json("""
+                {
+                  "id": "chatcmpl-probe",
+                  "choices": [{"message": {"role": "assistant", "content": "pong"}}],
+                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+                }
+                """));
 
         mockMvc.perform(post("/internal/providers/probe")
                         .param("provider", "openai"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.provider_id").value("openai"))
                 .andExpect(jsonPath("$.data.healthy").value(true))
-                .andExpect(jsonPath("$.data.discovered_models").value(1));
+                .andExpect(jsonPath("$.data.discovered_models").value(1))
+                .andExpect(jsonPath("$.data.strategy").value("synthetic_completion"))
+                .andExpect(jsonPath("$.data.probe_model").value("gpt-4o"));
 
         mockMvc.perform(get("/internal/providers/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.openai.healthy").value(true));
+
+        mockMvc.perform(get("/internal/providers/probe/history")
+                        .param("provider", "openai"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].provider_id").value("openai"))
+                .andExpect(jsonPath("$.data[0].strategy").value("synthetic_completion"))
+                .andExpect(jsonPath("$.data[0].probe_model").value("gpt-4o"));
     }
 
     @Test
@@ -1259,35 +1277,73 @@ class GatewayApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resource", containsString("/mcp")));
 
-        mockMvc.perform(get("/oauth/authorize")
-                        .param("client_id", "mcp-client")
+        MvcResult registerResult = mockMvc.perform(post("/oauth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"client_name":"Gateway MCP Client","redirect_uri":"https://client.example/callback"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.client_id").exists())
+                .andExpect(jsonPath("$.client_secret").exists())
+                .andExpect(jsonPath("$.client_name").value("Gateway MCP Client"))
+                .andReturn();
+        String clientId = read(registerResult, "/client_id");
+        String clientSecret = read(registerResult, "/client_secret");
+
+        MvcResult authorizeResult = mockMvc.perform(get("/oauth/authorize")
+                        .param("client_id", clientId)
+                        .param("redirect_uri", "https://client.example/callback")
                         .param("state", "abc"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("mcp-auth-code"))
-                .andExpect(jsonPath("$.state").value("abc"));
+                .andExpect(jsonPath("$.code").exists())
+                .andExpect(jsonPath("$.state").value("abc"))
+                .andReturn();
+        String code = read(authorizeResult, "/code");
 
         mockMvc.perform(post("/oauth/token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"scope":"mcp tools"}
-                                """))
+                                {"grant_type":"authorization_code","code":"%s","scope":"mcp tools"}
+                                """.formatted(code)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.access_token").exists())
-                .andExpect(jsonPath("$.token_type").value("Bearer"));
+                .andExpect(jsonPath("$.token_type").value("Bearer"))
+                .andExpect(jsonPath("$.client_id").value(clientId));
 
-        mockMvc.perform(post("/oauth/register")
+        mockMvc.perform(post("/oauth/token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"client_name":"Gateway MCP Client"}
-                                """))
+                                {"grant_type":"client_credentials","client_id":"%s","client_secret":"%s","scope":"mcp admin"}
+                                """.formatted(clientId, clientSecret)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.client_id").exists())
-                .andExpect(jsonPath("$.client_name").value("Gateway MCP Client"));
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.scope").value("mcp admin"))
+                .andExpect(jsonPath("$.client_id").value(clientId));
 
         mockMvc.perform(get("/mcp"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tools[?(@.name=='chat')]").exists())
                 .andExpect(jsonPath("$.tools[?(@.name=='list-models')]").exists());
+
+        MvcResult initResult = mockMvc.perform(post("/mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"method":"initialize","protocol_version":"2026-03-01","client_name":"Gateway MCP Client"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session_id").exists())
+                .andExpect(jsonPath("$.protocol_version").value("2026-03-01"))
+                .andReturn();
+        String sessionId = read(initResult, "/session_id");
+
+        mockMvc.perform(post("/mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"method":"ping","session_id":"%s"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session_id").value(sessionId))
+                .andExpect(jsonPath("$.pong").value(true));
 
         mockMvc.perform(post("/mcp")
                         .contentType(MediaType.APPLICATION_JSON)

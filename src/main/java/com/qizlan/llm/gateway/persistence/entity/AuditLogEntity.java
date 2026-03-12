@@ -34,6 +34,10 @@ public class AuditLogEntity {
     @Column(nullable = false)
     private String resourceId;
 
+    private String parentResourceType;
+
+    private String parentResourceId;
+
     @Lob
     @Column(nullable = false)
     private String detailJson;
@@ -54,6 +58,8 @@ public class AuditLogEntity {
             String action,
             String resourceType,
             String resourceId,
+            String parentResourceType,
+            String parentResourceId,
             String detailJson,
             String correlationId
     ) {
@@ -63,6 +69,8 @@ public class AuditLogEntity {
         this.action = action;
         this.resourceType = resourceType;
         this.resourceId = resourceId;
+        this.parentResourceType = parentResourceType;
+        this.parentResourceId = parentResourceId;
         this.detailJson = detailJson;
         this.correlationId = correlationId;
     }
@@ -105,6 +113,14 @@ public class AuditLogEntity {
 
     public String getDetailJson() {
         return detailJson;
+    }
+
+    public String getParentResourceType() {
+        return parentResourceType;
+    }
+
+    public String getParentResourceId() {
+        return parentResourceId;
     }
 
     public OffsetDateTime getCreatedAt() {

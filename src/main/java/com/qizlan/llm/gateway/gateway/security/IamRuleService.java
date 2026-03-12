@@ -42,17 +42,18 @@ public class IamRuleService {
                 .toList();
     }
 
-    public int resolveRateLimit(ApiKeyEntity apiKey) {
+    public RateLimitPolicy resolveRateLimit(ApiKeyEntity apiKey) {
         List<ApiKeyIamRuleEntity> rules = loadRules(apiKey, "RATE");
         if (rules.isEmpty()) {
-            return 0;
+            int fallback = apiKey == null ? 0 : apiKey.getRequestsPerMinuteLimit();
+            return fallback <= 0 ? RateLimitPolicy.disabled() : new RateLimitPolicy(fallback, 60, Math.max(1, fallback));
         }
         return rules.stream()
                 .map(ApiKeyIamRuleEntity::getPattern)
-                .map(this::safeParseInt)
-                .filter(limit -> limit > 0)
+                .map(this::parseRateLimitPolicy)
+                .filter(policy -> policy.requestLimit() > 0)
                 .findFirst()
-                .orElse(0);
+                .orElse(RateLimitPolicy.disabled());
     }
 
     public List<ApiKeyIamRuleEntity> listRules(String apiKeyId) {
@@ -106,11 +107,31 @@ public class IamRuleService {
         return pattern.equalsIgnoreCase(value);
     }
 
+    private RateLimitPolicy parseRateLimitPolicy(String value) {
+        if (value == null || value.isBlank()) {
+            return RateLimitPolicy.disabled();
+        }
+        String[] parts = value.split("/");
+        int requestLimit = safeParseInt(parts[0]);
+        int windowSeconds = parts.length >= 2 ? safeParseInt(parts[1]) : 60;
+        int burstLimit = parts.length >= 3 ? safeParseInt(parts[2]) : requestLimit;
+        if (requestLimit <= 0) {
+            return RateLimitPolicy.disabled();
+        }
+        return new RateLimitPolicy(requestLimit, Math.max(1, windowSeconds), Math.max(1, burstLimit));
+    }
+
     private int safeParseInt(String value) {
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException ex) {
             return 0;
+        }
+    }
+
+    public record RateLimitPolicy(int requestLimit, int windowSeconds, int burstLimit) {
+        public static RateLimitPolicy disabled() {
+            return new RateLimitPolicy(0, 60, 0);
         }
     }
 }
