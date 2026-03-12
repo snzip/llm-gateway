@@ -2,7 +2,6 @@ package com.qizlan.llm.gateway.gateway.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
 import com.qizlan.llm.gateway.gateway.dto.ImageDtos;
@@ -11,7 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Component
 public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
@@ -39,13 +38,7 @@ public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
             if (request.temperature() != null) {
                 body.put("temperature", request.temperature());
             }
-            JsonNode root = restClient.post()
-                    .uri("/v1/messages")
-                    .header("x-api-key", endpoint.apiKey())
-                    .header("anthropic-version", "2023-06-01")
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
+            JsonNode root = postJson("/v1/messages", Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"), body);
             return new ProviderChatResult(
                     providerId(),
                     providerModel,
@@ -55,7 +48,7 @@ public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
                     readInt(root, "/usage/output_tokens"),
                     sum(readInt(root, "/usage/input_tokens"), readInt(root, "/usage/output_tokens"))
             );
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
@@ -86,17 +79,14 @@ public class AnthropicProviderAdapter extends AbstractHttpProviderAdapter {
 
     @Override
     public void streamChat(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
-        ObjectNode body = objectMapper.createObjectNode();
+        Map<String, Object> body = new HashMap<>();
         body.put("model", providerModel);
-        body.set("messages", objectMapper.valueToTree(toMessagePayload(request.messages())));
+        body.put("messages", toMessagePayload(request.messages()));
         body.put("max_tokens", request.max_tokens() == null ? 512 : request.max_tokens());
         body.put("stream", true);
         if (request.temperature() != null) {
             body.put("temperature", request.temperature());
         }
-        streamAnthropicSse(buildJsonRequest(
-                "/v1/messages",
-                Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"),
-                body), consumer, providerId());
+        streamAnthropicSse("/v1/messages", Map.of("x-api-key", endpoint.apiKey(), "anthropic-version", "2023-06-01"), body, consumer, providerId());
     }
 }

@@ -2,7 +2,6 @@ package com.qizlan.llm.gateway.gateway.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
 import com.qizlan.llm.gateway.gateway.dto.ImageDtos;
@@ -11,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Component
 public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
@@ -41,12 +40,7 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
             if (request.max_tokens() != null) {
                 body.put("max_tokens", request.max_tokens());
             }
-            JsonNode root = restClient.post()
-                    .uri("/v1/chat/completions")
-                    .header("Authorization", "Bearer " + endpoint.apiKey())
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
+            JsonNode root = postJson("/v1/chat/completions", Map.of("Authorization", "Bearer " + endpoint.apiKey()), body);
             String content = readText(root, "/choices/0/message/content");
             return new ProviderChatResult(
                     providerId(),
@@ -57,7 +51,7 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
                     readInt(root, "/usage/completion_tokens"),
                     readInt(root, "/usage/total_tokens")
             );
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
@@ -65,18 +59,13 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
     @Override
     public ImageDtos.ImageResponse generateImage(ImageDtos.ImageGenerationRequest request, String providerModel) {
         try {
-            JsonNode root = restClient.post()
-                    .uri("/v1/images/generations")
-                    .header("Authorization", "Bearer " + endpoint.apiKey())
-                    .body(Map.of(
-                            "model", providerModel,
-                            "prompt", request.prompt(),
-                            "n", request.n() == null ? 1 : request.n()
-                    ))
-                    .retrieve()
-                    .body(JsonNode.class);
+            JsonNode root = postJson("/v1/images/generations", Map.of("Authorization", "Bearer " + endpoint.apiKey()), Map.of(
+                    "model", providerModel,
+                    "prompt", request.prompt(),
+                    "n", request.n() == null ? 1 : request.n()
+            ));
             return mapImageResponse(root, request.prompt());
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
@@ -84,18 +73,13 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
     @Override
     public ImageDtos.ImageResponse editImage(ImageDtos.ImageEditRequest request, String providerModel) {
         try {
-            JsonNode root = restClient.post()
-                    .uri("/v1/images/edits")
-                    .header("Authorization", "Bearer " + endpoint.apiKey())
-                    .body(Map.of(
-                            "model", providerModel,
-                            "prompt", request.prompt(),
-                            "n", request.n() == null ? 1 : request.n()
-                    ))
-                    .retrieve()
-                    .body(JsonNode.class);
+            JsonNode root = postJson("/v1/images/edits", Map.of("Authorization", "Bearer " + endpoint.apiKey()), Map.of(
+                    "model", providerModel,
+                    "prompt", request.prompt(),
+                    "n", request.n() == null ? 1 : request.n()
+            ));
             return mapImageResponse(root, request.prompt());
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
@@ -113,11 +97,7 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
     @Override
     public List<ProviderModelDescriptor> listModels() {
         try {
-            JsonNode root = restClient.get()
-                    .uri("/v1/models")
-                    .header("Authorization", "Bearer " + endpoint.apiKey())
-                    .retrieve()
-                    .body(JsonNode.class);
+            JsonNode root = getJson("/v1/models", Map.of("Authorization", "Bearer " + endpoint.apiKey()));
             JsonNode data = root.path("data");
             if (!data.isArray()) {
                 return List.of();
@@ -144,16 +124,16 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
                         );
                     })
                     .toList();
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
 
     @Override
     public void streamChat(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
-        ObjectNode body = objectMapper.createObjectNode();
+        Map<String, Object> body = new HashMap<>();
         body.put("model", providerModel);
-        body.set("messages", objectMapper.valueToTree(toMessagePayload(request.messages())));
+        body.put("messages", toMessagePayload(request.messages()));
         body.put("stream", true);
         if (request.temperature() != null) {
             body.put("temperature", request.temperature());
@@ -161,7 +141,7 @@ public class OpenAiProviderAdapter extends AbstractHttpProviderAdapter {
         if (request.max_tokens() != null) {
             body.put("max_tokens", request.max_tokens());
         }
-        streamOpenAiSse(buildJsonRequest("/v1/chat/completions", Map.of("Authorization", "Bearer " + endpoint.apiKey()), body), consumer, providerId());
+        streamOpenAiSse("/v1/chat/completions", Map.of("Authorization", "Bearer " + endpoint.apiKey()), body, consumer, providerId());
     }
 
     private int inferContextWindow(String id) {

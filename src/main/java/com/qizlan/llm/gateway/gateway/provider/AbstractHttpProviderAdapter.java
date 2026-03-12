@@ -2,35 +2,26 @@ package com.qizlan.llm.gateway.gateway.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
+import java.util.function.Consumer;
+import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 abstract class AbstractHttpProviderAdapter implements ProviderAdapter {
 
-    protected final RestClient restClient;
+    protected final WebClient webClient;
     protected final ObjectMapper objectMapper;
-    protected final HttpClient httpClient;
     protected final String baseUrl;
 
     protected AbstractHttpProviderAdapter(String baseUrl, ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         this.baseUrl = trimTrailingSlash(baseUrl);
-        this.restClient = RestClient.builder()
+        this.webClient = WebClient.builder()
                 .baseUrl(this.baseUrl)
                 .build();
-        this.httpClient = HttpClient.newHttpClient();
     }
 
     protected String trimTrailingSlash(String value) {
@@ -61,68 +52,108 @@ abstract class AbstractHttpProviderAdapter implements ProviderAdapter {
         return node.isMissingNode() || node.isNull() ? null : node.asInt();
     }
 
-    protected RuntimeException mapException(String providerId, RestClientResponseException ex) {
-        HttpStatusCode statusCode = ex.getStatusCode();
-        String message = providerId + " upstream error: " + statusCode.value();
-        return new UpstreamProviderException(providerId, statusCode.value(), message);
+    protected RuntimeException mapException(String providerId, WebClientResponseException ex) {
+        String message = providerId + " upstream error: " + ex.getStatusCode().value();
+        return new UpstreamProviderException(providerId, ex.getStatusCode().value(), message);
     }
 
-    protected HttpRequest buildJsonRequest(String uri, Map<String, String> headers, ObjectNode body) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + uri))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
-        headers.forEach(builder::header);
-        return builder.build();
+    protected JsonNode getJson(String uri, Map<String, String> headers) {
+        return webClient.get()
+                .uri(uri)
+                .headers(httpHeaders -> headers.forEach(httpHeaders::add))
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
     }
 
-    protected void streamOpenAiSse(HttpRequest request, java.util.function.Consumer<ProviderStreamEvent> consumer, String providerId) {
+    protected JsonNode postJson(String uri, Map<String, String> headers, Object body) {
+        return webClient.post()
+                .uri(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .headers(httpHeaders -> headers.forEach(httpHeaders::add))
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+    }
+
+    protected void streamOpenAiSse(String uri, Map<String, String> headers, Object body, Consumer<ProviderStreamEvent> consumer, String providerId) {
+        streamSse(uri, headers, body, providerId, false, consumer);
+    }
+
+    protected void streamAnthropicSse(String uri, Map<String, String> headers, Object body, Consumer<ProviderStreamEvent> consumer, String providerId) {
+        streamSse(uri, headers, body, providerId, true, consumer);
+    }
+
+    private void streamSse(String uri, Map<String, String> headers, Object body, String providerId, boolean anthropicFormat, Consumer<ProviderStreamEvent> consumer) {
         try {
-            HttpResponse<java.io.InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() >= 400) {
-                throw new UpstreamProviderException(providerId, response.statusCode(), providerId + " upstream error: " + response.statusCode());
+            List<String> lines = webClient.post()
+                    .uri(uri)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .headers(httpHeaders -> headers.forEach(httpHeaders::add))
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToFlux(String.class)
+                    .collectList()
+                    .block();
+            if (lines == null) {
+                return;
             }
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.isBlank() || !line.startsWith("data:")) {
-                        continue;
-                    }
-                    String data = line.substring("data:".length()).trim();
-                    consumer.accept(new ProviderStreamEvent(null, data, "[DONE]".equals(data)));
-                }
+            if (anthropicFormat) {
+                emitAnthropicEvents(lines, consumer);
+            } else {
+                emitOpenAiEvents(lines, consumer);
             }
-        } catch (IOException | InterruptedException ex) {
-            Thread.currentThread().interrupt();
+        } catch (WebClientResponseException ex) {
+            throw mapException(providerId, ex);
+        } catch (RuntimeException ex) {
             throw new IllegalArgumentException(providerId + " stream error");
         }
     }
 
-    protected void streamAnthropicSse(HttpRequest request, java.util.function.Consumer<ProviderStreamEvent> consumer, String providerId) {
-        try {
-            HttpResponse<java.io.InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() >= 400) {
-                throw new UpstreamProviderException(providerId, response.statusCode(), providerId + " upstream error: " + response.statusCode());
+    private void emitOpenAiEvents(List<String> lines, Consumer<ProviderStreamEvent> consumer) {
+        for (String chunk : lines) {
+            if (chunk == null || chunk.isBlank()) {
+                continue;
             }
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body()))) {
-                String eventName = null;
-                String data = null;
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.startsWith("event:")) {
-                        eventName = line.substring("event:".length()).trim();
-                    } else if (line.startsWith("data:")) {
-                        data = line.substring("data:".length()).trim();
-                    } else if (line.isBlank() && data != null) {
-                        consumer.accept(new ProviderStreamEvent(eventName, data, "message_stop".equals(eventName)));
-                        eventName = null;
-                        data = null;
-                    }
+            for (String line : chunk.split("\\r?\\n")) {
+                String data;
+                if (line.startsWith("data:")) {
+                    data = line.substring("data:".length()).trim();
+                } else if (line.startsWith("event:") || line.isBlank()) {
+                    continue;
+                } else {
+                    data = line.trim();
+                }
+                consumer.accept(new ProviderStreamEvent(null, data, "[DONE]".equals(data)));
+            }
+        }
+    }
+
+    private void emitAnthropicEvents(List<String> lines, Consumer<ProviderStreamEvent> consumer) {
+        String eventName = null;
+        String data = null;
+        for (String chunk : lines) {
+            if (chunk == null) {
+                continue;
+            }
+            for (String line : chunk.split("\\r?\\n")) {
+                if (line.startsWith("event:")) {
+                    eventName = line.substring("event:".length()).trim();
+                } else if (line.startsWith("data:")) {
+                    data = line.substring("data:".length()).trim();
+                } else if (!line.isBlank()) {
+                    data = line.trim();
+                } else if (line.isBlank() && data != null) {
+                    consumer.accept(new ProviderStreamEvent(eventName, data, "message_stop".equals(eventName)));
+                    eventName = null;
+                    data = null;
                 }
             }
-        } catch (IOException | InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new IllegalArgumentException(providerId + " stream error");
+        }
+        if (data != null) {
+            consumer.accept(new ProviderStreamEvent(eventName, data, "message_stop".equals(eventName)));
         }
     }
 }

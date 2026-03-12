@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Component
 public class GoogleProviderAdapter extends AbstractHttpProviderAdapter {
@@ -30,18 +30,12 @@ public class GoogleProviderAdapter extends AbstractHttpProviderAdapter {
     @Override
     public ProviderChatResult complete(ChatCompletionRequest request, String providerModel) {
         try {
-            JsonNode root = restClient.post()
-                    .uri(uriBuilder -> uriBuilder.path("/v1beta/models/{model}:generateContent")
-                            .queryParam("key", endpoint.apiKey())
-                            .build(providerModel))
-                    .body(Map.of(
-                            "contents", List.of(Map.of(
-                                    "role", "user",
-                                    "parts", List.of(Map.of("text", mergeContent(request)))
-                            ))
+            JsonNode root = postJson("/v1beta/models/" + providerModel + ":generateContent?key=" + endpoint.apiKey(), Map.of(), Map.of(
+                    "contents", List.of(Map.of(
+                            "role", "user",
+                            "parts", List.of(Map.of("text", mergeContent(request)))
                     ))
-                    .retrieve()
-                    .body(JsonNode.class);
+            ));
             return new ProviderChatResult(
                     providerId(),
                     providerModel,
@@ -51,7 +45,7 @@ public class GoogleProviderAdapter extends AbstractHttpProviderAdapter {
                     readInt(root, "/usageMetadata/candidatesTokenCount"),
                     readInt(root, "/usageMetadata/totalTokenCount")
             );
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }
@@ -59,18 +53,12 @@ public class GoogleProviderAdapter extends AbstractHttpProviderAdapter {
     @Override
     public ImageDtos.ImageResponse generateImage(ImageDtos.ImageGenerationRequest request, String providerModel) {
         try {
-            JsonNode root = restClient.post()
-                    .uri(uriBuilder -> uriBuilder.path("/v1beta/models/{model}:generateContent")
-                            .queryParam("key", endpoint.apiKey())
-                            .build(providerModel))
-                    .body(Map.of(
-                            "contents", List.of(Map.of(
-                                    "role", "user",
-                                    "parts", List.of(Map.of("text", request.prompt()))
-                            ))
+            JsonNode root = postJson("/v1beta/models/" + providerModel + ":generateContent?key=" + endpoint.apiKey(), Map.of(), Map.of(
+                    "contents", List.of(Map.of(
+                            "role", "user",
+                            "parts", List.of(Map.of("text", request.prompt()))
                     ))
-                    .retrieve()
-                    .body(JsonNode.class);
+            ));
             String b64 = readText(root, "/candidates/0/content/parts/0/inlineData/data");
             if (b64.isBlank()) {
                 b64 = "ZmFrZS1pbWFnZQ==";
@@ -79,7 +67,7 @@ public class GoogleProviderAdapter extends AbstractHttpProviderAdapter {
                     Instant.now().getEpochSecond(),
                     List.of(new ImageDtos.ImageData(b64, request.prompt()))
             );
-        } catch (RestClientResponseException ex) {
+        } catch (WebClientResponseException ex) {
             throw mapException(providerId(), ex);
         }
     }

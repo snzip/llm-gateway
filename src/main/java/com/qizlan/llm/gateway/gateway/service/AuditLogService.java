@@ -14,19 +14,18 @@ public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
-    private final RequestContextService requestContextService;
 
-    public AuditLogService(AuditLogRepository auditLogRepository, ObjectMapper objectMapper, RequestContextService requestContextService) {
+    public AuditLogService(AuditLogRepository auditLogRepository, ObjectMapper objectMapper) {
         this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
-        this.requestContextService = requestContextService;
     }
 
-    public void record(String organizationId, String action, String resourceType, String resourceId, Map<String, Object> detail) {
-        record(organizationId, action, resourceType, resourceId, null, null, detail);
+    public void record(RequestContext context, String organizationId, String action, String resourceType, String resourceId, Map<String, Object> detail) {
+        record(context, organizationId, action, resourceType, resourceId, null, null, detail);
     }
 
     public void record(
+            RequestContext context,
             String organizationId,
             String action,
             String resourceType,
@@ -38,7 +37,6 @@ public class AuditLogService {
         if (organizationId == null || organizationId.isBlank()) {
             return;
         }
-        RequestContextService.RequestContext context = requestContextService.get();
         AuditLogEntity entity = new AuditLogEntity(
                 organizationId,
                 context.actorType(),

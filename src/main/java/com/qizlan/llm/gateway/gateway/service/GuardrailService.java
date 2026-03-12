@@ -28,10 +28,10 @@ public class GuardrailService {
         return guardrailRuleRepository.findByOrganizationId(organizationId, Sort.by(Sort.Direction.ASC, "name"));
     }
 
-    public GuardrailRuleEntity createRule(String organizationId, String name, String ruleType, String pattern, String action) {
+    public GuardrailRuleEntity createRule(RequestContext context, String organizationId, String name, String ruleType, String pattern, String action) {
         GuardrailRuleEntity entity = new GuardrailRuleEntity(organizationId, name, normalizeType(ruleType), pattern, normalizeAction(action), true);
         GuardrailRuleEntity saved = guardrailRuleRepository.save(entity);
-        auditLogService.record(organizationId, "guardrail_rule.create", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
+        auditLogService.record(context, organizationId, "guardrail_rule.create", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
                 "name", saved.getName(),
                 "rule_type", saved.getRuleType(),
                 "pattern", saved.getPattern(),
@@ -41,7 +41,7 @@ public class GuardrailService {
         return saved;
     }
 
-    public GuardrailRuleEntity updateRule(String organizationId, String ruleId, String name, String ruleType, String pattern, String action, Boolean active) {
+    public GuardrailRuleEntity updateRule(RequestContext context, String organizationId, String ruleId, String name, String ruleType, String pattern, String action, Boolean active) {
         GuardrailRuleEntity entity = guardrailRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown guardrail rule: " + ruleId));
         if (!entity.getOrganizationId().equals(organizationId)) {
@@ -63,7 +63,7 @@ public class GuardrailService {
             entity.setActive(active);
         }
         GuardrailRuleEntity saved = guardrailRuleRepository.save(entity);
-        auditLogService.record(organizationId, "guardrail_rule.update", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
+        auditLogService.record(context, organizationId, "guardrail_rule.update", "guardrail_rule", saved.getId(), "organization", organizationId, Map.of(
                 "name", saved.getName(),
                 "rule_type", saved.getRuleType(),
                 "pattern", saved.getPattern(),
@@ -73,13 +73,13 @@ public class GuardrailService {
         return saved;
     }
 
-    public void deleteRule(String organizationId, String ruleId) {
+    public void deleteRule(RequestContext context, String organizationId, String ruleId) {
         GuardrailRuleEntity entity = guardrailRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown guardrail rule: " + ruleId));
         if (!entity.getOrganizationId().equals(organizationId)) {
             throw new IllegalArgumentException("Guardrail rule does not belong to organization: " + organizationId);
         }
-        auditLogService.record(organizationId, "guardrail_rule.delete", "guardrail_rule", entity.getId(), "organization", organizationId, Map.of(
+        auditLogService.record(context, organizationId, "guardrail_rule.delete", "guardrail_rule", entity.getId(), "organization", organizationId, Map.of(
                 "name", entity.getName(),
                 "rule_type", entity.getRuleType(),
                 "pattern", entity.getPattern(),

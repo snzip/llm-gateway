@@ -16,6 +16,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 public class ChatGatewayService {
@@ -116,6 +119,32 @@ public class ChatGatewayService {
             throw lastError;
         }
         throw new IllegalArgumentException("No provider candidates available for model: " + request.model());
+    }
+
+    public Flux<ProviderStreamEvent> streamFlux(ChatCompletionRequest request, ApiKeyEntity apiKey, ProviderStreamFormat format) {
+        return Flux.<ProviderStreamEvent>create(sink -> {
+                    try {
+                        stream(request, apiKey, format, event -> emitStreamEvent(sink, event));
+                        if (!sink.isCancelled()) {
+                            sink.complete();
+                        }
+                    } catch (Exception ex) {
+                        if (!sink.isCancelled()) {
+                            sink.error(ex);
+                        }
+                    }
+                }, FluxSink.OverflowStrategy.BUFFER)
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void emitStreamEvent(FluxSink<ProviderStreamEvent> sink, ProviderStreamEvent event) {
+        if (sink.isCancelled()) {
+            return;
+        }
+        sink.next(event);
+        if (event.done() && !sink.isCancelled()) {
+            sink.complete();
+        }
     }
 
     private List<Map<String, Object>> toRoutingMetadata(List<RoutingAttempt> attempts) {

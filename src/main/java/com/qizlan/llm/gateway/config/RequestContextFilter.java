@@ -1,16 +1,14 @@
 package com.qizlan.llm.gateway.config;
 
 import com.qizlan.llm.gateway.gateway.service.RequestContextService;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
 
 @Component("gatewayRequestContextFilter")
-public class RequestContextFilter extends OncePerRequestFilter {
+public class RequestContextFilter implements WebFilter {
 
     private final RequestContextService requestContextService;
 
@@ -19,17 +17,14 @@ public class RequestContextFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        requestContextService.set(
-                request.getHeader("X-Correlation-Id"),
-                request.getHeader("X-Actor-Type"),
-                request.getHeader("X-Actor-Id")
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        var context = requestContextService.create(
+                exchange.getRequest().getHeaders().getFirst("X-Correlation-Id"),
+                exchange.getRequest().getHeaders().getFirst("X-Actor-Type"),
+                exchange.getRequest().getHeaders().getFirst("X-Actor-Id")
         );
-        response.setHeader("X-Correlation-Id", requestContextService.get().correlationId());
-        try {
-            filterChain.doFilter(request, response);
-        } finally {
-            requestContextService.clear();
-        }
+        requestContextService.set(exchange, context);
+        exchange.getResponse().getHeaders().set("X-Correlation-Id", context.correlationId());
+        return chain.filter(exchange);
     }
 }

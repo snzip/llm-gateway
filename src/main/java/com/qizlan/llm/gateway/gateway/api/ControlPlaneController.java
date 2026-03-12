@@ -9,6 +9,7 @@ import com.qizlan.llm.gateway.gateway.service.ModelSyncService;
 import com.qizlan.llm.gateway.gateway.service.RequestLogService;
 import com.qizlan.llm.gateway.gateway.service.AuditLogService;
 import com.qizlan.llm.gateway.gateway.service.GuardrailService;
+import com.qizlan.llm.gateway.gateway.service.RequestContextService;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyIamRuleEntity;
 import com.qizlan.llm.gateway.persistence.entity.AuditLogEntity;
@@ -30,6 +31,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping
@@ -43,6 +47,7 @@ public class ControlPlaneController {
     private final ModelSyncService modelSyncService;
     private final GuardrailService guardrailService;
     private final ObjectMapper objectMapper;
+    private final RequestContextService requestContextService;
 
     public ControlPlaneController(
             ControlPlaneService controlPlaneService,
@@ -52,7 +57,8 @@ public class ControlPlaneController {
             AuditLogService auditLogService,
             ModelSyncService modelSyncService,
             GuardrailService guardrailService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RequestContextService requestContextService
     ) {
         this.controlPlaneService = controlPlaneService;
         this.requestLogService = requestLogService;
@@ -62,166 +68,183 @@ public class ControlPlaneController {
         this.modelSyncService = modelSyncService;
         this.guardrailService = guardrailService;
         this.objectMapper = objectMapper;
+        this.requestContextService = requestContextService;
     }
 
     @GetMapping("/orgs")
-    public List<Map<String, Object>> listOrganizations() {
-        return controlPlaneService.listOrganizations().stream().map(this::toOrganization).toList();
+    public Mono<List<Map<String, Object>>> listOrganizations() {
+        return blocking(() -> controlPlaneService.listOrganizations().stream().map(this::toOrganization).toList());
     }
 
     @PostMapping("/orgs")
-    public Map<String, Object> createOrganization(@RequestBody OrganizationUpsertRequest request) {
-        return toOrganization(controlPlaneService.createOrganization(request.name()));
+    public Mono<Map<String, Object>> createOrganization(@RequestBody OrganizationUpsertRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toOrganization(controlPlaneService.createOrganization(requestContextService.get(exchange), request.name())));
     }
 
     @PatchMapping("/orgs/{id}")
-    public Map<String, Object> updateOrganization(@PathVariable String id, @RequestBody OrganizationUpsertRequest request) {
-        return toOrganization(controlPlaneService.updateOrganization(id, request.name()));
+    public Mono<Map<String, Object>> updateOrganization(@PathVariable String id, @RequestBody OrganizationUpsertRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toOrganization(controlPlaneService.updateOrganization(requestContextService.get(exchange), id, request.name())));
     }
 
     @DeleteMapping("/orgs/{id}")
-    public ResponseEntity<Void> deleteOrganization(@PathVariable String id) {
-        controlPlaneService.deleteOrganization(id);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> deleteOrganization(@PathVariable String id, ServerWebExchange exchange) {
+        return blocking(() -> {
+            controlPlaneService.deleteOrganization(requestContextService.get(exchange), id);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @GetMapping("/projects")
-    public List<Map<String, Object>> listProjects() {
-        return controlPlaneService.listProjects().stream().map(this::toProject).toList();
+    public Mono<List<Map<String, Object>>> listProjects() {
+        return blocking(() -> controlPlaneService.listProjects().stream().map(this::toProject).toList());
     }
 
     @PostMapping("/projects")
-    public Map<String, Object> createProject(@RequestBody ProjectUpsertRequest request) {
-        return toProject(controlPlaneService.createProject(request.organizationId(), request.name()));
+    public Mono<Map<String, Object>> createProject(@RequestBody ProjectUpsertRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toProject(controlPlaneService.createProject(requestContextService.get(exchange), request.organizationId(), request.name())));
     }
 
     @GetMapping("/projects/{id}")
-    public Map<String, Object> getProject(@PathVariable String id) {
-        return toProject(controlPlaneService.getProject(id));
+    public Mono<Map<String, Object>> getProject(@PathVariable String id) {
+        return blocking(() -> toProject(controlPlaneService.getProject(id)));
     }
 
     @PatchMapping("/projects/{id}")
-    public Map<String, Object> updateProject(@PathVariable String id, @RequestBody ProjectRenameRequest request) {
-        return toProject(controlPlaneService.updateProject(id, request.name()));
+    public Mono<Map<String, Object>> updateProject(@PathVariable String id, @RequestBody ProjectRenameRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toProject(controlPlaneService.updateProject(requestContextService.get(exchange), id, request.name())));
     }
 
     @DeleteMapping("/projects/{id}")
-    public ResponseEntity<Void> deleteProject(@PathVariable String id) {
-        controlPlaneService.deleteProject(id);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> deleteProject(@PathVariable String id, ServerWebExchange exchange) {
+        return blocking(() -> {
+            controlPlaneService.deleteProject(requestContextService.get(exchange), id);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @PostMapping("/keys/api")
-    public Map<String, Object> createApiKey(@RequestBody ApiKeyCreateRequest request) {
-        ControlPlaneService.ApiKeyCreateResult result = controlPlaneService.createApiKey(request.organizationId(), request.projectId(), request.name());
-        return Map.of(
-                "id", result.entity().getId(),
-                "token", result.rawToken(),
-                "token_prefix", result.entity().getTokenPrefix(),
-                "name", result.entity().getName(),
-                "project_id", result.entity().getProject().getId(),
-                "organization_id", result.entity().getOrganization().getId()
-        );
+    public Mono<Map<String, Object>> createApiKey(@RequestBody ApiKeyCreateRequest request, ServerWebExchange exchange) {
+        return blocking(() -> {
+            ControlPlaneService.ApiKeyCreateResult result = controlPlaneService.createApiKey(requestContextService.get(exchange), request.organizationId(), request.projectId(), request.name());
+            return Map.of(
+                    "id", result.entity().getId(),
+                    "token", result.rawToken(),
+                    "token_prefix", result.entity().getTokenPrefix(),
+                    "name", result.entity().getName(),
+                    "project_id", result.entity().getProject().getId(),
+                    "organization_id", result.entity().getOrganization().getId()
+            );
+        });
     }
 
     @GetMapping("/keys/api")
-    public List<Map<String, Object>> listApiKeys() {
-        return controlPlaneService.listApiKeys().stream().map(this::toApiKey).toList();
+    public Mono<List<Map<String, Object>>> listApiKeys() {
+        return blocking(() -> controlPlaneService.listApiKeys().stream().map(this::toApiKey).toList());
     }
 
     @PatchMapping("/keys/api/{id}")
-    public Map<String, Object> updateApiKey(@PathVariable String id, @RequestBody ApiKeyPatchRequest request) {
-        return toApiKey(controlPlaneService.updateApiKey(id, request.name(), request.active(), request.budget_micros_usd(), request.requests_per_minute_limit()));
+    public Mono<Map<String, Object>> updateApiKey(@PathVariable String id, @RequestBody ApiKeyPatchRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toApiKey(controlPlaneService.updateApiKey(requestContextService.get(exchange), id, request.name(), request.active(), request.budget_micros_usd(), request.requests_per_minute_limit())));
     }
 
     @DeleteMapping("/keys/api/{id}")
-    public ResponseEntity<Void> deleteApiKey(@PathVariable String id) {
-        controlPlaneService.revokeApiKey(id);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> deleteApiKey(@PathVariable String id, ServerWebExchange exchange) {
+        return blocking(() -> {
+            controlPlaneService.revokeApiKey(requestContextService.get(exchange), id);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @PostMapping("/keys/api/{id}/iam")
-    public Map<String, Object> createIamRule(@PathVariable String id, @RequestBody IamRuleCreateRequest request) {
-        return toIamRule(controlPlaneService.createIamRule(id, request.rule_type(), request.effect(), request.pattern()));
+    public Mono<Map<String, Object>> createIamRule(@PathVariable String id, @RequestBody IamRuleCreateRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toIamRule(controlPlaneService.createIamRule(requestContextService.get(exchange), id, request.rule_type(), request.effect(), request.pattern())));
     }
 
     @GetMapping("/keys/api/{id}/iam")
-    public List<Map<String, Object>> listIamRules(@PathVariable String id) {
-        return controlPlaneService.listIamRules(id).stream().map(this::toIamRule).toList();
+    public Mono<List<Map<String, Object>>> listIamRules(@PathVariable String id) {
+        return blocking(() -> controlPlaneService.listIamRules(id).stream().map(this::toIamRule).toList());
     }
 
     @PatchMapping("/keys/api/{id}/iam/{ruleId}")
-    public Map<String, Object> updateIamRule(@PathVariable String id, @PathVariable String ruleId, @RequestBody IamRulePatchRequest request) {
-        return toIamRule(controlPlaneService.updateIamRule(id, ruleId, request.rule_type(), request.effect(), request.pattern(), request.active()));
+    public Mono<Map<String, Object>> updateIamRule(@PathVariable String id, @PathVariable String ruleId, @RequestBody IamRulePatchRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toIamRule(controlPlaneService.updateIamRule(requestContextService.get(exchange), id, ruleId, request.rule_type(), request.effect(), request.pattern(), request.active())));
     }
 
     @DeleteMapping("/keys/api/{id}/iam/{ruleId}")
-    public ResponseEntity<Void> deleteIamRule(@PathVariable String id, @PathVariable String ruleId) {
-        controlPlaneService.deleteIamRule(id, ruleId);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> deleteIamRule(@PathVariable String id, @PathVariable String ruleId, ServerWebExchange exchange) {
+        return blocking(() -> {
+            controlPlaneService.deleteIamRule(requestContextService.get(exchange), id, ruleId);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @GetMapping("/logs")
-    public List<Map<String, Object>> listLogs() {
-        return requestLogService.list().stream().map(this::toLog).toList();
+    public Mono<List<Map<String, Object>>> listLogs() {
+        return blocking(() -> requestLogService.list().stream().map(this::toLog).toList());
     }
 
     @GetMapping("/logs/{id}")
-    public Map<String, Object> getLog(@PathVariable String id) {
-        return toLog(requestLogService.get(id));
+    public Mono<Map<String, Object>> getLog(@PathVariable String id) {
+        return blocking(() -> toLog(requestLogService.get(id)));
     }
 
     @GetMapping("/costs/summary")
-    public Map<String, Object> costSummary(
+    public Mono<Map<String, Object>> costSummary(
             @RequestParam(name = "group_by", required = false) String groupBy,
             @RequestParam(name = "organization_id", required = false) String organizationId,
             @RequestParam(name = "project_id", required = false) String projectId,
             @RequestParam(name = "path", required = false) String path
     ) {
-        return Map.of("data", costAggregationService.summarize(groupBy, organizationId, projectId, path));
+        return blocking(() -> Map.of("data", costAggregationService.summarize(groupBy, organizationId, projectId, path)));
     }
 
     @GetMapping("/costs/timeseries")
-    public Map<String, Object> costTimeseries(
+    public Mono<Map<String, Object>> costTimeseries(
             @RequestParam(name = "bucket", required = false) String bucket,
             @RequestParam(name = "group_by", required = false) String groupBy,
             @RequestParam(name = "organization_id", required = false) String organizationId,
             @RequestParam(name = "project_id", required = false) String projectId,
             @RequestParam(name = "path", required = false) String path
     ) {
-        return Map.of("data", costAggregationService.timeseries(bucket, groupBy, organizationId, projectId, path));
+        return blocking(() -> Map.of("data", costAggregationService.timeseries(bucket, groupBy, organizationId, projectId, path)));
     }
 
     @PostMapping("/internal/costs/recompute")
-    public Map<String, Object> recomputeCosts(@RequestParam(name = "bucket", required = false) String bucket) {
-        if (bucket == null || bucket.isBlank()) {
-            return costAggregationWorkerService.recomputeAll();
-        }
-        return Map.of("rows", costAggregationWorkerService.recompute(bucket));
+    public Mono<Map<String, Object>> recomputeCosts(@RequestParam(name = "bucket", required = false) String bucket) {
+        return blocking(() -> {
+            if (bucket == null || bucket.isBlank()) {
+                return costAggregationWorkerService.recomputeAll();
+            }
+            return Map.of("rows", costAggregationWorkerService.recompute(bucket));
+        });
     }
 
     @PostMapping("/internal/costs/compact")
-    public Map<String, Object> compactCosts(
+    public Mono<Map<String, Object>> compactCosts(
             @RequestParam(name = "bucket", required = false) String bucket,
             @RequestParam(name = "retention_days", required = false) Long retentionDays
     ) {
-        if (bucket == null || bucket.isBlank()) {
-            return costAggregationWorkerService.compactAll();
-        }
-        return Map.of("rows_deleted", costAggregationWorkerService.compact(bucket, retentionDays == null ? 30 : retentionDays));
+        return blocking(() -> {
+            if (bucket == null || bucket.isBlank()) {
+                return costAggregationWorkerService.compactAll();
+            }
+            return Map.of("rows_deleted", costAggregationWorkerService.compact(bucket, retentionDays == null ? 30 : retentionDays));
+        });
     }
 
     @PostMapping("/internal/models/sync")
-    public Map<String, Object> syncModels(@RequestParam(name = "provider", required = false) String provider) {
-        if (provider == null || provider.isBlank()) {
-            return modelSyncService.syncAll();
-        }
-        return Map.of("synced_mappings", modelSyncService.syncProvider(provider));
+    public Mono<Map<String, Object>> syncModels(@RequestParam(name = "provider", required = false) String provider) {
+        return blocking(() -> {
+            if (provider == null || provider.isBlank()) {
+                return modelSyncService.syncAll();
+            }
+            return Map.of("synced_mappings", modelSyncService.syncProvider(provider));
+        });
     }
 
     @GetMapping("/internal/models/sync/history")
-    public Map<String, Object> syncHistory(@RequestParam(name = "provider", required = false) String provider) {
-        return Map.of("data", modelSyncService.history(provider).stream().map(history -> Map.of(
+    public Mono<Map<String, Object>> syncHistory(@RequestParam(name = "provider", required = false) String provider) {
+        return blocking(() -> Map.of("data", modelSyncService.history(provider).stream().map(history -> Map.of(
                 "id", history.getId(),
                 "provider_id", history.getProviderId(),
                 "status", history.getStatus(),
@@ -230,62 +253,64 @@ public class ControlPlaneController {
                 "archived_mappings", history.getArchivedMappings(),
                 "detail", history.getDetail(),
                 "created_at", history.getCreatedAt()
-        )).toList());
+        )).toList()));
     }
 
     @GetMapping("/guardrails/rules/{organizationId}")
-    public Map<String, Object> guardrailRules(@PathVariable String organizationId) {
-        return Map.of("data", guardrailService.listRules(organizationId).stream().map(this::toGuardrailRule).toList());
+    public Mono<Map<String, Object>> guardrailRules(@PathVariable String organizationId) {
+        return blocking(() -> Map.of("data", guardrailService.listRules(organizationId).stream().map(this::toGuardrailRule).toList()));
     }
 
     @PostMapping("/guardrails/rules/{organizationId}")
-    public Map<String, Object> createGuardrailRule(@PathVariable String organizationId, @RequestBody GuardrailRuleCreateRequest request) {
-        return toGuardrailRule(guardrailService.createRule(organizationId, request.name(), request.rule_type(), request.pattern(), request.action()));
+    public Mono<Map<String, Object>> createGuardrailRule(@PathVariable String organizationId, @RequestBody GuardrailRuleCreateRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toGuardrailRule(guardrailService.createRule(requestContextService.get(exchange), organizationId, request.name(), request.rule_type(), request.pattern(), request.action())));
     }
 
     @PatchMapping("/guardrails/rules/{organizationId}/{ruleId}")
-    public Map<String, Object> updateGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId, @RequestBody GuardrailRulePatchRequest request) {
-        return toGuardrailRule(guardrailService.updateRule(organizationId, ruleId, request.name(), request.rule_type(), request.pattern(), request.action(), request.active()));
+    public Mono<Map<String, Object>> updateGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId, @RequestBody GuardrailRulePatchRequest request, ServerWebExchange exchange) {
+        return blocking(() -> toGuardrailRule(guardrailService.updateRule(requestContextService.get(exchange), organizationId, ruleId, request.name(), request.rule_type(), request.pattern(), request.action(), request.active())));
     }
 
     @DeleteMapping("/guardrails/rules/{organizationId}/{ruleId}")
-    public ResponseEntity<Void> deleteGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId) {
-        guardrailService.deleteRule(organizationId, ruleId);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> deleteGuardrailRule(@PathVariable String organizationId, @PathVariable String ruleId, ServerWebExchange exchange) {
+        return blocking(() -> {
+            guardrailService.deleteRule(requestContextService.get(exchange), organizationId, ruleId);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @GetMapping("/guardrails/violations/{organizationId}")
-    public Map<String, Object> guardrailViolations(@PathVariable String organizationId) {
-        return Map.of("data", guardrailService.listViolations(organizationId).stream().map(this::toGuardrailViolation).toList());
+    public Mono<Map<String, Object>> guardrailViolations(@PathVariable String organizationId) {
+        return blocking(() -> Map.of("data", guardrailService.listViolations(organizationId).stream().map(this::toGuardrailViolation).toList()));
     }
 
     @GetMapping("/guardrails/stats/{organizationId}")
-    public Map<String, Object> guardrailStats(@PathVariable String organizationId) {
-        return Map.of("data", guardrailService.stats(organizationId));
+    public Mono<Map<String, Object>> guardrailStats(@PathVariable String organizationId) {
+        return blocking(() -> Map.of("data", guardrailService.stats(organizationId)));
     }
 
     @PostMapping("/guardrails/test/{organizationId}")
-    public Map<String, Object> guardrailTest(@PathVariable String organizationId, @RequestBody GuardrailTestRequest request) {
-        return guardrailService.test(organizationId, request.text());
+    public Mono<Map<String, Object>> guardrailTest(@PathVariable String organizationId, @RequestBody GuardrailTestRequest request) {
+        return blocking(() -> guardrailService.test(organizationId, request.text()));
     }
 
     @GetMapping("/guardrails/system-rules")
-    public Map<String, Object> guardrailSystemRules() {
-        return Map.of("data", List.of(Map.of(
+    public Mono<Map<String, Object>> guardrailSystemRules() {
+        return blocking(() -> Map.of("data", List.of(Map.of(
                 "rule_type", "KEYWORD",
                 "actions", List.of("BLOCK", "LOG"),
                 "description", "Case-insensitive keyword match"
-        )));
+        ))));
     }
 
     @GetMapping("/audit-logs/{organizationId}")
-    public Map<String, Object> auditLogs(@PathVariable String organizationId) {
-        return Map.of("data", auditLogService.list(organizationId).stream().map(this::toAuditLog).toList());
+    public Mono<Map<String, Object>> auditLogs(@PathVariable String organizationId) {
+        return blocking(() -> Map.of("data", auditLogService.list(organizationId).stream().map(this::toAuditLog).toList()));
     }
 
     @GetMapping("/audit-logs/{organizationId}/filters")
-    public Map<String, Object> auditLogFilters(@PathVariable String organizationId) {
-        return Map.of("data", auditLogService.filters(organizationId));
+    public Mono<Map<String, Object>> auditLogFilters(@PathVariable String organizationId) {
+        return blocking(() -> Map.of("data", auditLogService.filters(organizationId)));
     }
 
     private Map<String, Object> toOrganization(OrganizationEntity entity) {
@@ -440,5 +465,9 @@ public class ControlPlaneController {
     }
 
     public record GuardrailTestRequest(@NotBlank String text) {
+    }
+
+    private <T> Mono<T> blocking(java.util.concurrent.Callable<T> action) {
+        return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
     }
 }

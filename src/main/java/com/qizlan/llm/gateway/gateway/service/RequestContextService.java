@@ -2,40 +2,38 @@ package com.qizlan.llm.gateway.gateway.service;
 
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ServerWebExchange;
 
 @Service
 public class RequestContextService {
 
-    private final ThreadLocal<RequestContext> current = new ThreadLocal<>();
+    public static final String EXCHANGE_ATTRIBUTE = RequestContext.class.getName();
 
-    public void set(String correlationId, String actorType, String actorId) {
-        current.set(new RequestContext(
+    public RequestContext create(String correlationId, String actorType, String actorId) {
+        return new RequestContext(
                 correlationId == null || correlationId.isBlank() ? UUID.randomUUID().toString().replace("-", "") : correlationId,
                 actorType == null || actorType.isBlank() ? "system" : actorType,
                 actorId == null || actorId.isBlank() ? "control-plane" : actorId
-        ));
+        );
     }
 
-    public RequestContext get() {
-        RequestContext context = current.get();
-        if (context == null) {
-            return new RequestContext(UUID.randomUUID().toString().replace("-", ""), "system", "control-plane");
-        }
-        return context;
+    public RequestContext defaultContext() {
+        return create(null, null, null);
     }
 
-    public void clear() {
-        current.remove();
+    public RequestContext get(ServerWebExchange exchange) {
+        RequestContext context = exchange.getAttribute(EXCHANGE_ATTRIBUTE);
+        return context == null ? defaultContext() : context;
     }
 
-    public void overrideActorIfDefault(String actorType, String actorId) {
-        RequestContext context = get();
+    public void set(ServerWebExchange exchange, RequestContext context) {
+        exchange.getAttributes().put(EXCHANGE_ATTRIBUTE, context);
+    }
+
+    public RequestContext withDefaultActor(RequestContext context, String actorType, String actorId) {
         if (!"system".equals(context.actorType()) || !"control-plane".equals(context.actorId())) {
-            return;
+            return context;
         }
-        set(context.correlationId(), actorType, actorId);
-    }
-
-    public record RequestContext(String correlationId, String actorType, String actorId) {
+        return new RequestContext(context.correlationId(), actorType, actorId);
     }
 }

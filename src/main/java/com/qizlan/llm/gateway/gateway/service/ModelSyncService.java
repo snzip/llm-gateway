@@ -273,9 +273,9 @@ public class ModelSyncService {
                 Map.entry("supportsReasoning", model.isSupportsReasoning()),
                 Map.entry("supportsStreaming", model.isSupportsStreaming()),
                 Map.entry("imageGeneration", model.isImageGeneration()),
-                Map.entry("contextWindowTokens", model.getContextWindowTokens()),
-                Map.entry("inputCostMicrosPerToken", model.getInputCostMicrosPerToken()),
-                Map.entry("outputCostMicrosPerToken", model.getOutputCostMicrosPerToken()),
+                Map.entry("contextWindowTokens", numberOrZero(model.getContextWindowTokens())),
+                Map.entry("inputCostMicrosPerToken", numberOrZero(model.getInputCostMicrosPerToken())),
+                Map.entry("outputCostMicrosPerToken", numberOrZero(model.getOutputCostMicrosPerToken())),
                 Map.entry("archived", model.isArchived())
         );
     }
@@ -311,6 +311,10 @@ public class ModelSyncService {
             return ConflictPolicy.OVERRIDE_MANUAL;
         }
         return ConflictPolicy.valueOf(properties.sync().conflictPolicy().trim().toUpperCase());
+    }
+
+    private Number numberOrZero(Number value) {
+        return value == null ? 0 : value;
     }
 
     private enum ConflictPolicy {

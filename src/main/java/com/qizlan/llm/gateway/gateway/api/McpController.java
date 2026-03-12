@@ -9,9 +9,10 @@ import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.OAuthAccessTokenEntity;
 import com.qizlan.llm.gateway.persistence.entity.OAuthAuthorizationCodeEntity;
 import com.qizlan.llm.gateway.persistence.entity.OAuthClientEntity;
-import jakarta.servlet.http.HttpServletRequest;
+import java.net.URI;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,7 +21,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.server.ServerWebExchange;
 import org.springframework.http.HttpStatus;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @RestController
 public class McpController {
@@ -46,16 +50,18 @@ public class McpController {
     }
 
     @PostMapping("/internal/providers/probe")
-    public Map<String, Object> probeProviders(@RequestParam(name = "provider", required = false) String provider) {
-        if (provider == null || provider.isBlank()) {
-            return Map.of("data", providerProbeService.probeAll());
-        }
-        return Map.of("data", providerProbeService.probeProvider(provider));
+    public Mono<Map<String, Object>> probeProviders(@RequestParam(name = "provider", required = false) String provider) {
+        return blocking(() -> {
+            if (provider == null || provider.isBlank()) {
+                return Map.of("data", providerProbeService.probeAll());
+            }
+            return Map.of("data", providerProbeService.probeProvider(provider));
+        });
     }
 
     @GetMapping("/internal/providers/probe/history")
-    public Map<String, Object> probeHistory(@RequestParam(name = "provider", required = false) String provider) {
-        return Map.of("data", providerProbeService.history(provider).stream().map(item -> Map.of(
+    public Mono<Map<String, Object>> probeHistory(@RequestParam(name = "provider", required = false) String provider) {
+        return blocking(() -> Map.of("data", providerProbeService.history(provider).stream().map(item -> Map.of(
                 "id", item.getId(),
                 "provider_id", item.getProviderId(),
                 "healthy", item.isHealthy(),
@@ -64,81 +70,93 @@ public class McpController {
                 "strategy", item.getStrategy(),
                 "error_message", item.getErrorMessage() == null ? "" : item.getErrorMessage(),
                 "created_at", item.getCreatedAt().toString()
-        )).toList());
+        )).toList()));
     }
 
     @GetMapping("/.well-known/oauth-authorization-server")
-    public Map<String, Object> oauthMetadataRoot(HttpServletRequest request) {
-        return oauthMetadata(request, "");
+    public Mono<Map<String, Object>> oauthMetadataRoot(ServerWebExchange exchange) {
+        return blocking(() -> oauthMetadata(exchange.getRequest(), ""));
     }
 
     @GetMapping("/.well-known/oauth-authorization-server/mcp")
-    public Map<String, Object> oauthMetadataMcp(HttpServletRequest request) {
-        return oauthMetadata(request, "/mcp");
+    public Mono<Map<String, Object>> oauthMetadataMcp(ServerWebExchange exchange) {
+        return blocking(() -> oauthMetadata(exchange.getRequest(), "/mcp"));
     }
 
     @GetMapping("/oauth/authorize")
-    public ResponseEntity<Map<String, Object>> authorize(
+    public Mono<ResponseEntity<Map<String, Object>>> authorize(
             @RequestParam(name = "client_id", required = false) String clientId,
             @RequestParam(name = "redirect_uri", required = false) String redirectUri,
             @RequestParam(name = "state", required = false) String state
     ) {
-        OAuthAuthorizationCodeEntity code = oAuthService.issueAuthorizationCode(clientId == null ? "" : clientId, redirectUri, state);
-        return ResponseEntity.ok(Map.of(
-                "code", code.getCode(),
-                "client_id", clientId == null ? "" : clientId,
-                "redirect_uri", redirectUri == null ? "" : redirectUri,
-                "state", state == null ? "" : state
-        ));
+        return blocking(() -> {
+            OAuthAuthorizationCodeEntity code = oAuthService.issueAuthorizationCode(clientId == null ? "" : clientId, redirectUri, state);
+            return ResponseEntity.ok(Map.of(
+                    "code", code.getCode(),
+                    "client_id", clientId == null ? "" : clientId,
+                    "redirect_uri", redirectUri == null ? "" : redirectUri,
+                    "state", state == null ? "" : state
+            ));
+        });
     }
 
     @PostMapping("/oauth/token")
-    public Map<String, Object> token(@RequestBody(required = false) Map<String, Object> request) {
-        OAuthAccessTokenEntity token = oAuthService.exchangeToken(request == null ? Map.of() : request);
-        return java.util.Map.ofEntries(
-                java.util.Map.entry("access_token", token.getAccessToken()),
-                java.util.Map.entry("token_type", "Bearer"),
-                java.util.Map.entry("expires_in", token.getExpiresInSeconds()),
-                java.util.Map.entry("scope", token.getScope()),
-                java.util.Map.entry("client_id", token.getClientId()),
-                java.util.Map.entry("refresh_token", token.getRefreshToken() == null ? "" : token.getRefreshToken())
-        );
+    public Mono<Map<String, Object>> token(@RequestBody(required = false) Map<String, Object> request) {
+        return blocking(() -> {
+            OAuthAccessTokenEntity token = oAuthService.exchangeToken(request == null ? Map.of() : request);
+            return java.util.Map.ofEntries(
+                    java.util.Map.entry("access_token", token.getAccessToken()),
+                    java.util.Map.entry("token_type", "Bearer"),
+                    java.util.Map.entry("expires_in", token.getExpiresInSeconds()),
+                    java.util.Map.entry("scope", token.getScope()),
+                    java.util.Map.entry("client_id", token.getClientId()),
+                    java.util.Map.entry("refresh_token", token.getRefreshToken() == null ? "" : token.getRefreshToken())
+            );
+        });
     }
 
     @PostMapping("/oauth/revoke")
-    public ResponseEntity<Void> revoke(@RequestBody(required = false) Map<String, Object> request) {
-        oAuthService.revokeToken(request == null ? Map.of() : request);
-        return ResponseEntity.noContent().build();
+    public Mono<ResponseEntity<Void>> revoke(@RequestBody(required = false) Map<String, Object> request) {
+        return blocking(() -> {
+            oAuthService.revokeToken(request == null ? Map.of() : request);
+            return ResponseEntity.noContent().build();
+        });
     }
 
     @PostMapping("/oauth/register")
-    public Map<String, Object> register(@RequestBody(required = false) Map<String, Object> request) {
-        OAuthClientEntity client = oAuthService.registerClient(
-                request == null ? null : request.getOrDefault("client_name", null) == null ? null : request.get("client_name").toString(),
-                request != null && request.get("grant_types") instanceof java.util.List<?> list ? list.stream().map(Object::toString).toList() : java.util.List.of("authorization_code", "client_credentials", "refresh_token"),
-                request == null ? null : request.getOrDefault("redirect_uri", null) == null ? null : request.get("redirect_uri").toString()
-        );
-        return Map.of(
-                "client_id", client.getClientId(),
-                "client_secret", client.getClientSecret(),
-                "client_name", client.getClientName(),
-                "grant_types", client.getGrantTypes().split(" "),
-                "redirect_uri", client.getRedirectUri() == null ? "" : client.getRedirectUri()
-        );
+    public Mono<Map<String, Object>> register(@RequestBody(required = false) Map<String, Object> request) {
+        return blocking(() -> {
+            OAuthClientEntity client = oAuthService.registerClient(
+                    request == null ? null : request.getOrDefault("client_name", null) == null ? null : request.get("client_name").toString(),
+                    request != null && request.get("grant_types") instanceof java.util.List<?> list ? list.stream().map(Object::toString).toList() : java.util.List.of("authorization_code", "client_credentials", "refresh_token"),
+                    request == null ? null : request.getOrDefault("redirect_uri", null) == null ? null : request.get("redirect_uri").toString()
+            );
+            return Map.of(
+                    "client_id", client.getClientId(),
+                    "client_secret", client.getClientSecret(),
+                    "client_name", client.getClientName(),
+                    "grant_types", client.getGrantTypes().split(" "),
+                    "redirect_uri", client.getRedirectUri() == null ? "" : client.getRedirectUri()
+            );
+        });
     }
 
     @PostMapping("/oauth/clients/{clientId}/rotate-secret")
-    public Map<String, Object> rotateSecret(@PathVariable("clientId") String clientId) {
-        OAuthClientEntity client = oAuthService.rotateClientSecret(clientId);
-        return Map.of(
-                "client_id", client.getClientId(),
-                "client_secret", client.getClientSecret(),
-                "rotated", true
-        );
+    public Mono<Map<String, Object>> rotateSecret(@PathVariable("clientId") String clientId) {
+        return blocking(() -> {
+            OAuthClientEntity client = oAuthService.rotateClientSecret(clientId);
+            return Map.of(
+                    "client_id", client.getClientId(),
+                    "client_secret", client.getClientSecret(),
+                    "rotated", true
+            );
+        });
     }
 
-    private Map<String, Object> oauthMetadata(HttpServletRequest request, String resourceSuffix) {
-        String base = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
+    private Map<String, Object> oauthMetadata(ServerHttpRequest request, String resourceSuffix) {
+        URI uri = request.getURI();
+        String authority = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+        String base = uri.getScheme() + "://" + authority;
         return java.util.Map.ofEntries(
                 java.util.Map.entry("issuer", base),
                 java.util.Map.entry("authorization_endpoint", base + "/oauth/authorize"),
@@ -150,12 +168,12 @@ public class McpController {
     }
 
     @RequestMapping("/mcp")
-    public Map<String, Object> mcpProtected(@RequestBody(required = false) Map<String, Object> request, HttpServletRequest servletRequest) {
-        return mcpInternal(request, servletRequest);
+    public Mono<Map<String, Object>> mcpProtected(@RequestBody(required = false) Map<String, Object> request, ServerWebExchange exchange) {
+        return blocking(() -> mcpInternal(request, exchange));
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> mcpInternal(Map<String, Object> request, HttpServletRequest servletRequest) {
+    private Map<String, Object> mcpInternal(Map<String, Object> request, ServerWebExchange exchange) {
         if (request == null || request.isEmpty()) {
             return Map.of(
                     "server", "llmgatejava-mcp",
@@ -164,10 +182,10 @@ public class McpController {
             );
         }
         String method = request.getOrDefault("method", "").toString();
-        ApiKeyEntity apiKey = (ApiKeyEntity) servletRequest.getAttribute("apiKey");
+        ApiKeyEntity apiKey = exchange.getAttribute("apiKey");
         if ("tools/call".equals(method)) {
-            OAuthAccessTokenEntity token = requireOAuthAccessToken(servletRequest);
-            requestContextService.overrideActorIfDefault("oauth_client", token.getClientId());
+            OAuthAccessTokenEntity token = requireOAuthAccessToken(exchange);
+            requestContextService.set(exchange, requestContextService.withDefaultActor(requestContextService.get(exchange), "oauth_client", token.getClientId()));
         }
         return switch (method) {
             case "initialize" -> mcpSessionService.initialize(request);
@@ -183,8 +201,8 @@ public class McpController {
         };
     }
 
-    private OAuthAccessTokenEntity requireOAuthAccessToken(HttpServletRequest request) {
-        String header = request.getHeader("Authorization");
+    private OAuthAccessTokenEntity requireOAuthAccessToken(ServerWebExchange exchange) {
+        String header = exchange.getRequest().getHeaders().getFirst("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing OAuth bearer token");
         }
@@ -193,5 +211,9 @@ public class McpController {
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, ex.getMessage());
         }
+    }
+
+    private <T> Mono<T> blocking(java.util.concurrent.Callable<T> action) {
+        return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
     }
 }
