@@ -18,11 +18,13 @@ public class RequestLogService {
     private final RequestLogRepository requestLogRepository;
     private final ApiKeyRepository apiKeyRepository;
     private final ObjectMapper objectMapper;
+    private final GatewayMetricsService gatewayMetricsService;
 
-    public RequestLogService(RequestLogRepository requestLogRepository, ApiKeyRepository apiKeyRepository, ObjectMapper objectMapper) {
+    public RequestLogService(RequestLogRepository requestLogRepository, ApiKeyRepository apiKeyRepository, ObjectMapper objectMapper, GatewayMetricsService gatewayMetricsService) {
         this.requestLogRepository = requestLogRepository;
         this.apiKeyRepository = apiKeyRepository;
         this.objectMapper = objectMapper;
+        this.gatewayMetricsService = gatewayMetricsService;
     }
 
     public void logGatewayRequest(
@@ -67,6 +69,18 @@ public class RequestLogService {
                 writeTrace(routingAttempts)
         );
         requestLogRepository.save(log);
+        gatewayMetricsService.recordGatewayRequest(
+                path,
+                providerId,
+                requestedModel,
+                httpStatus,
+                latencyMs,
+                promptTokens,
+                completionTokens,
+                totalTokens,
+                cost.totalMicrosUsd(),
+                false
+        );
         if (apiKey != null) {
             apiKey.addSpentMicrosUsd(cost.totalMicrosUsd());
             apiKeyRepository.save(apiKey);
@@ -102,6 +116,7 @@ public class RequestLogService {
                 writeTrace(routingAttempts)
         );
         requestLogRepository.save(log);
+        gatewayMetricsService.recordGatewayRequest(path, providerId, requestedModel, httpStatus, latencyMs, 0, 0, 0, estimatedCost, false);
     }
 
     public void logStreamRequest(
@@ -141,6 +156,7 @@ public class RequestLogService {
                 writeTrace(routingAttempts)
         );
         requestLogRepository.save(log);
+        gatewayMetricsService.recordGatewayRequest(path, providerId, requestedModel, (int) httpStatus, latencyMs, 0, 0, 0, 0, true);
     }
 
     public void logGatewayFailure(String path, String requestedModel, ApiKeyEntity apiKey, int httpStatus, long latencyMs, List<RoutingAttempt> routingAttempts) {
@@ -171,6 +187,18 @@ public class RequestLogService {
                 writeTrace(routingAttempts)
         );
         requestLogRepository.save(log);
+        gatewayMetricsService.recordGatewayRequest(
+                path,
+                routingAttempts.isEmpty() ? "none" : routingAttempts.get(routingAttempts.size() - 1).provider(),
+                requestedModel,
+                httpStatus,
+                latencyMs,
+                0,
+                0,
+                0,
+                0,
+                false
+        );
     }
 
     public List<RequestLogEntity> list() {

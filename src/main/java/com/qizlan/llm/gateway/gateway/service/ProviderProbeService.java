@@ -22,12 +22,14 @@ public class ProviderProbeService {
     private final ProviderHealthService providerHealthService;
     private final ProviderProbeHistoryRepository providerProbeHistoryRepository;
     private final GatewayProperties properties;
+    private final GatewayMetricsService gatewayMetricsService;
 
-    public ProviderProbeService(List<ProviderAdapter> providerAdapters, ProviderHealthService providerHealthService, ProviderProbeHistoryRepository providerProbeHistoryRepository, GatewayProperties properties) {
+    public ProviderProbeService(List<ProviderAdapter> providerAdapters, ProviderHealthService providerHealthService, ProviderProbeHistoryRepository providerProbeHistoryRepository, GatewayProperties properties, GatewayMetricsService gatewayMetricsService) {
         this.providerAdapters = providerAdapters;
         this.providerHealthService = providerHealthService;
         this.providerProbeHistoryRepository = providerProbeHistoryRepository;
         this.properties = properties;
+        this.gatewayMetricsService = gatewayMetricsService;
     }
 
     @Scheduled(fixedDelayString = "${llm.gateway.probe.fixed-delay-millis:300000}")
@@ -78,11 +80,13 @@ public class ProviderProbeService {
             providerHealthService.recordSuccess(providerId);
             long latency = System.currentTimeMillis() - startedAt;
             providerProbeHistoryRepository.save(new ProviderProbeHistoryEntity(providerId, true, latency, probeModel, "synthetic_completion", null));
+            gatewayMetricsService.recordProviderProbe(providerId, true, latency);
             return Map.of("healthy", true, "provider_id", providerId, "discovered_models", models, "probe_model", probeModel, "latency_ms", latency, "strategy", "synthetic_completion");
         } catch (RuntimeException ex) {
             providerHealthService.recordFailure(providerId, ex.getMessage());
             long latency = System.currentTimeMillis() - startedAt;
             providerProbeHistoryRepository.save(new ProviderProbeHistoryEntity(providerId, false, latency, probeModel, "synthetic_completion", ex.getMessage()));
+            gatewayMetricsService.recordProviderProbe(providerId, false, latency);
             return Map.of("healthy", false, "provider_id", providerId, "probe_model", probeModel, "latency_ms", latency, "strategy", "synthetic_completion", "error", ex.getMessage());
         }
     }

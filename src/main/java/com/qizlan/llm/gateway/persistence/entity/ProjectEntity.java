@@ -6,10 +6,13 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -34,6 +37,9 @@ public class ProjectEntity {
 
     @Column(nullable = false)
     private OffsetDateTime updatedAt;
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private Set<ApiKeyEntity> apiKeys = new LinkedHashSet<>();
 
     protected ProjectEntity() {
     }
@@ -73,6 +79,10 @@ public class ProjectEntity {
 
     public boolean isActive() {
         return active;
+    }
+
+    public Set<ApiKeyEntity> getApiKeys() {
+        return apiKeys;
     }
 
     public void setName(String name) {

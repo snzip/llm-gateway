@@ -2,11 +2,15 @@ package com.qizlan.llm.gateway.persistence.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -27,6 +31,12 @@ public class OrganizationEntity {
 
     @Column(nullable = false)
     private OffsetDateTime updatedAt;
+
+    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    private Set<ProjectEntity> projects = new LinkedHashSet<>();
+
+    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    private Set<ApiKeyEntity> apiKeys = new LinkedHashSet<>();
 
     protected OrganizationEntity() {
     }
@@ -61,6 +71,14 @@ public class OrganizationEntity {
 
     public boolean isActive() {
         return active;
+    }
+
+    public Set<ProjectEntity> getProjects() {
+        return projects;
+    }
+
+    public Set<ApiKeyEntity> getApiKeys() {
+        return apiKeys;
     }
 
     public void setName(String name) {
