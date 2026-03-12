@@ -74,15 +74,20 @@ public class ChatGatewayService {
                 return response;
             } catch (UpstreamProviderException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), "upstream_error", false));
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
                 lastError = ex;
+                if (!ex.isRetryable()) {
+                    requestLogService.logGatewayFailure("/v1/chat/completions", request.model(), apiKey, ex.getGatewayStatus(), System.currentTimeMillis() - startedAt, attempts);
+                    throw ex;
+                }
+                applyBackoffIfNeeded(ex, attempts.size());
             } catch (RuntimeException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
                 attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 500, "gateway_error", false));
                 lastError = ex;
             }
         }
-        requestLogService.logGatewayFailure("/v1/chat/completions", request.model(), apiKey, 502, System.currentTimeMillis() - startedAt, attempts);
+        requestLogService.logGatewayFailure("/v1/chat/completions", request.model(), apiKey, gatewayStatus(lastError), System.currentTimeMillis() - startedAt, attempts);
         if (lastError != null) {
             throw lastError;
         }
@@ -130,6 +135,18 @@ public class ChatGatewayService {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
                 attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), "upstream_error", false));
                 lastError = ex;
+                if (!ex.isRetryable()) {
+                    requestLogService.logGatewayFailure(
+                            format == ProviderStreamFormat.ANTHROPIC ? "/v1/messages" : "/v1/chat/completions",
+                            request.model(),
+                            apiKey,
+                            ex.getGatewayStatus(),
+                            System.currentTimeMillis() - startedAt,
+                            attempts
+                    );
+                    throw ex;
+                }
+                applyBackoffIfNeeded(ex, attempts.size());
             } catch (RuntimeException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
                 attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), 500, "gateway_error", false));
@@ -140,7 +157,7 @@ public class ChatGatewayService {
                 format == ProviderStreamFormat.ANTHROPIC ? "/v1/messages" : "/v1/chat/completions",
                 request.model(),
                 apiKey,
-                502,
+                gatewayStatus(lastError),
                 System.currentTimeMillis() - startedAt,
                 attempts
         );
@@ -185,5 +202,23 @@ public class ChatGatewayService {
                         "error_type", attempt.errorType(),
                         "succeeded", attempt.succeeded()))
                 .toList();
+    }
+
+    private int gatewayStatus(RuntimeException lastError) {
+        if (lastError instanceof UpstreamProviderException upstream) {
+            return upstream.getGatewayStatus();
+        }
+        return 502;
+    }
+
+    private void applyBackoffIfNeeded(UpstreamProviderException ex, int attemptNumber) {
+        if (ex.getStatusCode() != 429) {
+            return;
+        }
+        try {
+            Thread.sleep(Math.min(50L * attemptNumber, 200L));
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

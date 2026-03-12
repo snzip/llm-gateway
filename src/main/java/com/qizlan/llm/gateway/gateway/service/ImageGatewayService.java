@@ -53,11 +53,16 @@ public class ImageGatewayService {
                 return response;
             } catch (UpstreamProviderException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), "upstream_error", false));
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
+                if (!ex.isRetryable()) {
+                    requestLogService.logGatewayFailure("/v1/images/generations", request.model(), apiKey, ex.getGatewayStatus(), System.currentTimeMillis() - startedAt, attempts);
+                    throw ex;
+                }
+                applyBackoffIfNeeded(ex, attempts.size());
             }
         }
         requestLogService.logGatewayFailure("/v1/images/generations", request.model(), apiKey, 502, System.currentTimeMillis() - startedAt, attempts);
-        throw new UpstreamProviderException("routing", 502, "All providers failed for model: " + request.model());
+        throw UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + request.model());
     }
 
     public ImageDtos.ImageResponse edit(ImageDtos.ImageEditRequest request, ApiKeyEntity apiKey) {
@@ -83,10 +88,26 @@ public class ImageGatewayService {
                 return response;
             } catch (UpstreamProviderException ex) {
                 providerHealthService.recordFailure(mapping.getProvider().getId(), ex.getMessage());
-                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), "upstream_error", false));
+                attempts.add(new RoutingAttempt(mapping.getProvider().getId(), mapping.getModelName(), ex.getStatusCode(), ex.getErrorType(), false));
+                if (!ex.isRetryable()) {
+                    requestLogService.logGatewayFailure("/v1/images/edits", request.model(), apiKey, ex.getGatewayStatus(), System.currentTimeMillis() - startedAt, attempts);
+                    throw ex;
+                }
+                applyBackoffIfNeeded(ex, attempts.size());
             }
         }
         requestLogService.logGatewayFailure("/v1/images/edits", request.model(), apiKey, 502, System.currentTimeMillis() - startedAt, attempts);
-        throw new UpstreamProviderException("routing", 502, "All providers failed for model: " + request.model());
+        throw UpstreamProviderException.fromStatus("routing", 502, "All providers failed for model: " + request.model());
+    }
+
+    private void applyBackoffIfNeeded(UpstreamProviderException ex, int attemptNumber) {
+        if (ex.getStatusCode() != 429) {
+            return;
+        }
+        try {
+            Thread.sleep(Math.min(50L * attemptNumber, 200L));
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 abstract class AbstractHttpProviderAdapter implements ProviderAdapter {
@@ -52,9 +53,21 @@ abstract class AbstractHttpProviderAdapter implements ProviderAdapter {
         return node.isMissingNode() || node.isNull() ? null : node.asInt();
     }
 
-    protected RuntimeException mapException(String providerId, WebClientResponseException ex) {
+    protected UpstreamProviderException mapException(String providerId, WebClientResponseException ex) {
         String message = providerId + " upstream error: " + ex.getStatusCode().value();
-        return new UpstreamProviderException(providerId, ex.getStatusCode().value(), message);
+        return UpstreamProviderException.fromStatus(providerId, ex.getStatusCode().value(), message);
+    }
+
+    protected UpstreamProviderException mapRequestException(String providerId, WebClientRequestException ex) {
+        String message = providerId + " request error: " + ex.getMessage();
+        Throwable cause = ex.getCause();
+        if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException || cause instanceof java.util.concurrent.TimeoutException) {
+            return UpstreamProviderException.timeout(providerId, message);
+        }
+        if (message.toLowerCase().contains("timed out")) {
+            return UpstreamProviderException.timeout(providerId, message);
+        }
+        return UpstreamProviderException.network(providerId, message);
     }
 
     protected JsonNode getJson(String uri, Map<String, String> headers) {
@@ -107,8 +120,10 @@ abstract class AbstractHttpProviderAdapter implements ProviderAdapter {
             }
         } catch (WebClientResponseException ex) {
             throw mapException(providerId, ex);
+        } catch (WebClientRequestException ex) {
+            throw mapRequestException(providerId, ex);
         } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(providerId + " stream error");
+            throw UpstreamProviderException.network(providerId, providerId + " stream error");
         }
     }
 
