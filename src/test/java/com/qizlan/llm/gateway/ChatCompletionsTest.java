@@ -13,7 +13,7 @@ class ChatCompletionsTest extends BaseGatewayTest {
 
     @Test
     void openAiChatCompletionWorks() {
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "OpenAI says hello", 11, 7, 18));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "OpenAI says hello", 11, 7, 18));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -43,7 +43,7 @@ class ChatCompletionsTest extends BaseGatewayTest {
 
     @Test
     void googleChatCompletionWorks() {
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("google", "gemini-2.0-flash", "Gemini says hello", 8, 6, 14));
+        mockProviderAdapter.enqueueCompletionResponse("google", mockResponse("google", "gemini-2.0-flash", "Gemini says hello", 8, 6, 14));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -63,7 +63,7 @@ class ChatCompletionsTest extends BaseGatewayTest {
 
     @Test
     void openAiStreamingPassthroughWorks() {
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "stream hello", 11, 7, 18));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "stream hello", 11, 7, 18));
 
         FluxExchangeResult<ServerSentEvent<String>> result = webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")

@@ -7,7 +7,7 @@ class MessagesApiTest extends BaseGatewayTest {
 
     @Test
     void anthropicCompatibilityWorks() {
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "claude-3-5-sonnet", "Anthropic says hello", 13, 9, 22));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "claude-3-5-sonnet", "Anthropic says hello", 13, 9, 22));
 
         webTestClient.post().uri("/v1/messages")
                 .header("Authorization", "Bearer test-api-key")

@@ -37,7 +37,7 @@ class IamRuleIntegrationTest extends BaseGatewayTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "gateway-text", "IAM anthropic success", 10, 5, 15));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "gateway-text", "IAM anthropic success", 10, 5, 15));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

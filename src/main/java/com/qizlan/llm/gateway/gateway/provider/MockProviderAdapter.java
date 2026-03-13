@@ -16,26 +16,62 @@ import reactor.core.publisher.Mono;
 @Component
 public class MockProviderAdapter implements ProviderAdapter {
 
-    private final BlockingQueue<ProviderChatResult> completionResponses = new LinkedBlockingQueue<>();
-    private final BlockingQueue<UpstreamProviderException> completionFailures = new LinkedBlockingQueue<>();
-    private final BlockingQueue<List<ProviderModelDescriptor>> modelDescriptors = new LinkedBlockingQueue<>();
+    private final java.util.Map<String, BlockingQueue<ProviderChatResult>> completionResponsesByProvider = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, BlockingQueue<UpstreamProviderException>> completionFailuresByProvider = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, BlockingQueue<List<ProviderModelDescriptor>>> modelDescriptorsByProvider = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private String currentProviderId = "mock";
+    private final java.util.concurrent.atomic.AtomicReference<String> threadLocalProviderId = new java.util.concurrent.atomic.AtomicReference<>(null);
+
+    public void setCurrentProviderId(String providerId) {
+        this.currentProviderId = providerId;
+    }
+
+    private String getProviderId() {
+        String id = threadLocalProviderId.get();
+        return id != null ? id : currentProviderId;
+    }
+
+    private BlockingQueue<ProviderChatResult> getResponseQueue(String providerId) {
+        return completionResponsesByProvider.computeIfAbsent(providerId, k -> new LinkedBlockingQueue<>());
+    }
+
+    private BlockingQueue<UpstreamProviderException> getFailureQueue(String providerId) {
+        return completionFailuresByProvider.computeIfAbsent(providerId, k -> new LinkedBlockingQueue<>());
+    }
+
+    private BlockingQueue<List<ProviderModelDescriptor>> getModelDescriptorQueue(String providerId) {
+        return modelDescriptorsByProvider.computeIfAbsent(providerId, k -> new LinkedBlockingQueue<>());
+    }
 
     public void enqueueCompletionResponse(ProviderChatResult result) {
-        completionResponses.add(result);
+        enqueueCompletionResponse(currentProviderId, result);
+    }
+
+    public void enqueueCompletionResponse(String providerId, ProviderChatResult result) {
+        getResponseQueue(providerId).add(result);
     }
 
     public void enqueueModelList(List<ProviderModelDescriptor> descriptors) {
-        modelDescriptors.add(descriptors);
+        enqueueModelList(currentProviderId, descriptors);
+    }
+
+    public void enqueueModelList(String providerId, List<ProviderModelDescriptor> descriptors) {
+        getModelDescriptorQueue(providerId).add(descriptors);
     }
 
     public void reset() {
-        completionResponses.clear();
-        completionFailures.clear();
-        modelDescriptors.clear();
+        completionResponsesByProvider.clear();
+        completionFailuresByProvider.clear();
+        modelDescriptorsByProvider.clear();
     }
 
     public void enqueueFailure(UpstreamProviderException failure) {
-        completionFailures.add(failure);
+        enqueueFailure(currentProviderId, failure);
+    }
+
+    public void enqueueFailure(String providerId, UpstreamProviderException failure) {
+        getFailureQueue(providerId).add(failure);
     }
 
     @Override
@@ -45,6 +81,7 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public ProviderChatResult complete(ChatCompletionRequest request, String providerModel) {
+        String providerId = getProviderId();
         boolean imageRequest = request.image_config() != null
                 || request.messages().stream().anyMatch(msg -> msg.content() instanceof List<?>);
         String promptSummary = request.messages().stream()
@@ -52,19 +89,37 @@ public class MockProviderAdapter implements ProviderAdapter {
                 .filter(value -> !value.isBlank())
                 .reduce((a, b) -> a + "\n" + b)
                 .orElse("No prompt");
-        UpstreamProviderException failure = completionFailures.poll();
+        UpstreamProviderException failure = getFailureQueue(providerId).poll();
         if (failure != null) {
             throw failure;
         }
         String fallback = imageRequest
                 ? "Generated image for prompt: " + promptSummary
                 : "Mock response for " + providerModel + ": " + promptSummary;
-        return nextResult(providerModel, fallback, imageRequest);
+        return nextResult(providerId, providerModel, fallback, imageRequest);
     }
 
     @Override
     public Mono<ProviderChatResult> completeAsync(ChatCompletionRequest request, String providerModel) {
-        return Mono.just(complete(request, providerModel));
+        return Mono.deferContextual(contextView -> {
+            String providerId = contextView.getOrDefault("PROVIDER_ID", currentProviderId);
+            boolean imageRequest = request.image_config() != null
+                    || request.messages().stream().anyMatch(msg -> msg.content() instanceof List<?>);
+            String promptSummary = request.messages().stream()
+                    .map(msg -> stringify(msg.content()))
+                    .filter(value -> !value.isBlank())
+                    .reduce((a, b) -> a + "\n" + b)
+                    .orElse("No prompt");
+            UpstreamProviderException failure = getFailureQueue(providerId).poll();
+            if (failure != null) {
+                return Mono.error(failure);
+            }
+            String fallback = imageRequest
+                    ? "Generated image for prompt: " + promptSummary
+                    : "Mock response for " + providerModel + ": " + promptSummary;
+            ProviderChatResult result = nextResult(providerId, providerModel, fallback, imageRequest);
+            return Mono.just(result);
+        });
     }
 
     @Override
@@ -74,7 +129,10 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public Mono<ImageDtos.ImageResponse> generateImageAsync(ImageDtos.ImageGenerationRequest request, String providerModel) {
-        return Mono.just(generateImage(request, providerModel));
+        return Mono.deferContextual(contextView -> {
+            String providerId = contextView.getOrDefault("PROVIDER_ID", currentProviderId);
+            return Mono.just(generateImage(request, providerModel));
+        });
     }
 
     @Override
@@ -84,18 +142,23 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public Mono<ImageDtos.ImageResponse> editImageAsync(ImageDtos.ImageEditRequest request, String providerModel) {
-        return Mono.just(editImage(request, providerModel));
+        return Mono.deferContextual(contextView -> {
+            String providerId = contextView.getOrDefault("PROVIDER_ID", currentProviderId);
+            return Mono.just(editImage(request, providerModel));
+        });
     }
 
     @Override
     public List<ProviderModelDescriptor> listModels() {
-        List<ProviderModelDescriptor> queued = modelDescriptors.poll();
+        String providerId = getProviderId();
+        List<ProviderModelDescriptor> queued = getModelDescriptorQueue(providerId).poll();
         return queued == null ? List.of() : queued;
     }
 
     @Override
     public void streamChat(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
-        ProviderChatResult result = nextResult(providerModel, "mock stream", false);
+        String providerId = getProviderId();
+        ProviderChatResult result = nextResult(providerId, providerModel, "mock stream", false);
         consumer.accept(new ProviderStreamEvent(
                 format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
                 format == ProviderStreamFormat.ANTHROPIC
@@ -130,24 +193,27 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public Flux<ProviderStreamEvent> streamChatAsync(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format) {
-        ProviderChatResult result = nextResult(providerModel, "mock stream", false);
-        return Flux.just(
-                new ProviderStreamEvent(
-                        format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
-                        format == ProviderStreamFormat.ANTHROPIC
-                                ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + result.content() + "\"}}"
-                                : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"" + result.content() + "\"},\"finish_reason\":null}]}",
-                        false
-                ),
-                new ProviderStreamEvent(format == ProviderStreamFormat.ANTHROPIC ? "message_stop" : null, format == ProviderStreamFormat.ANTHROPIC ? "{\"type\":\"message_stop\"}" : "[DONE]", true)
-        );
+        return Flux.deferContextual(contextView -> {
+            String providerId = contextView.getOrDefault("PROVIDER_ID", currentProviderId);
+            ProviderChatResult result = nextResult(providerId, providerModel, "mock stream", false);
+            return Flux.just(
+                    new ProviderStreamEvent(
+                            format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
+                            format == ProviderStreamFormat.ANTHROPIC
+                                    ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + result.content() + "\"}}"
+                                    : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"" + result.content() + "\"},\"finish_reason\":null}]}",
+                            false
+                    ),
+                    new ProviderStreamEvent(format == ProviderStreamFormat.ANTHROPIC ? "message_stop" : null, format == ProviderStreamFormat.ANTHROPIC ? "{\"type\":\"message_stop\"}" : "[DONE]", true)
+            );
+        });
     }
 
-    private ProviderChatResult nextResult(String providerModel, String fallback, boolean imageRequest) {
-        ProviderChatResult queued = completionResponses.poll();
+    private ProviderChatResult nextResult(String providerId, String providerModel, String fallback, boolean imageRequest) {
+        ProviderChatResult queued = getResponseQueue(providerId).poll();
         if (queued != null) {
             return queued;
         }
-        return new ProviderChatResult("mock", providerModel, fallback, imageRequest, 12, 24, 36);
+        throw UpstreamProviderException.network(providerId, "No mock response queued for provider: " + providerId);
     }
 }

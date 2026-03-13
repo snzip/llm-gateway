@@ -26,39 +26,51 @@ public class RoutingProviderGateway implements ProviderGateway {
 
     @Override
     public ProviderChatResult complete(ChatCompletionRequest request, String providerId, String providerModel) {
-        return resolve(providerId, () -> select(providerId).complete(request, providerModel), () -> mockProviderAdapter.complete(request, providerModel));
+        return resolve(providerId, () -> select(providerId).complete(request, providerModel), () -> {
+            mockProviderAdapter.setCurrentProviderId(providerId);
+            return mockProviderAdapter.complete(request, providerModel);
+        });
     }
 
     @Override
     public Mono<ProviderChatResult> completeAsync(ChatCompletionRequest request, String providerId, String providerModel) {
         if ("mock".equalsIgnoreCase(properties.providers().mode())) {
-            return mockProviderAdapter.completeAsync(request, providerModel);
+            return mockProviderAdapter.completeAsync(request, providerModel)
+                    .contextWrite(ctx -> ctx.put("PROVIDER_ID", providerId));
         }
         return isEnabled(providerId) ? select(providerId).completeAsync(request, providerModel) : mockProviderAdapter.completeAsync(request, providerModel);
     }
 
     @Override
     public ImageDtos.ImageResponse generateImage(ImageDtos.ImageGenerationRequest request, String providerId, String providerModel) {
-        return resolve(providerId, () -> select(providerId).generateImage(request, providerModel), () -> mockProviderAdapter.generateImage(request, providerModel));
+        return resolve(providerId, () -> select(providerId).generateImage(request, providerModel), () -> {
+            mockProviderAdapter.setCurrentProviderId(providerId);
+            return mockProviderAdapter.generateImage(request, providerModel);
+        });
     }
 
     @Override
     public Mono<ImageDtos.ImageResponse> generateImageAsync(ImageDtos.ImageGenerationRequest request, String providerId, String providerModel) {
         if ("mock".equalsIgnoreCase(properties.providers().mode())) {
-            return mockProviderAdapter.generateImageAsync(request, providerModel);
+            return mockProviderAdapter.generateImageAsync(request, providerModel)
+                    .contextWrite(ctx -> ctx.put("PROVIDER_ID", providerId));
         }
         return isEnabled(providerId) ? select(providerId).generateImageAsync(request, providerModel) : mockProviderAdapter.generateImageAsync(request, providerModel);
     }
 
     @Override
     public ImageDtos.ImageResponse editImage(ImageDtos.ImageEditRequest request, String providerId, String providerModel) {
-        return resolve(providerId, () -> select(providerId).editImage(request, providerModel), () -> mockProviderAdapter.editImage(request, providerModel));
+        return resolve(providerId, () -> select(providerId).editImage(request, providerModel), () -> {
+            mockProviderAdapter.setCurrentProviderId(providerId);
+            return mockProviderAdapter.editImage(request, providerModel);
+        });
     }
 
     @Override
     public Mono<ImageDtos.ImageResponse> editImageAsync(ImageDtos.ImageEditRequest request, String providerId, String providerModel) {
         if ("mock".equalsIgnoreCase(properties.providers().mode())) {
-            return mockProviderAdapter.editImageAsync(request, providerModel);
+            return mockProviderAdapter.editImageAsync(request, providerModel)
+                    .contextWrite(ctx -> ctx.put("PROVIDER_ID", providerId));
         }
         return isEnabled(providerId) ? select(providerId).editImageAsync(request, providerModel) : mockProviderAdapter.editImageAsync(request, providerModel);
     }
@@ -69,6 +81,7 @@ public class RoutingProviderGateway implements ProviderGateway {
             select(providerId).streamChat(request, providerModel, format, consumer);
             return null;
         }, () -> {
+            mockProviderAdapter.setCurrentProviderId(providerId);
             mockProviderAdapter.streamChat(request, providerModel, format, consumer);
             return null;
         });
@@ -77,7 +90,8 @@ public class RoutingProviderGateway implements ProviderGateway {
     @Override
     public Flux<ProviderStreamEvent> streamChatAsync(ChatCompletionRequest request, String providerId, String providerModel, ProviderStreamFormat format) {
         if ("mock".equalsIgnoreCase(properties.providers().mode())) {
-            return mockProviderAdapter.streamChatAsync(request, providerModel, format);
+            return mockProviderAdapter.streamChatAsync(request, providerModel, format)
+                    .contextWrite(ctx -> ctx.put("PROVIDER_ID", providerId));
         }
         return isEnabled(providerId) ? select(providerId).streamChatAsync(request, providerModel, format) : mockProviderAdapter.streamChatAsync(request, providerModel, format);
     }

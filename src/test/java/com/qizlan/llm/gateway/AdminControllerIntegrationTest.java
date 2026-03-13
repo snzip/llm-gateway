@@ -12,7 +12,7 @@ class AdminControllerIntegrationTest extends BaseGatewayTest {
         EntityExchangeResult<byte[]> keyResult = createApiKey(organizationId, projectId, uniqueName("Admin Key"));
         String rawToken = read(keyResult, "/token");
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "admin works", 9, 4, 13));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "admin works", 9, 4, 13));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

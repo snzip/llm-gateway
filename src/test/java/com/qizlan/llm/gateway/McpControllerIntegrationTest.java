@@ -69,7 +69,7 @@ class McpControllerIntegrationTest extends BaseGatewayTest {
                 .expectBody()
                 .jsonPath("$.tools").isArray();
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "MCP says hello", 9, 4, 13));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "MCP says hello", 9, 4, 13));
 
         webTestClient.post().uri("/mcp")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)

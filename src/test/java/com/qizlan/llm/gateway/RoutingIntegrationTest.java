@@ -57,8 +57,8 @@ class RoutingIntegrationTest extends BaseGatewayTest {
 
     @Test
     void routingFallbackAndProviderHealthWork() {
-        mockProviderAdapter.enqueueFailure(new UpstreamProviderException("openai", 500, 500, "server_error", true, "openai down"));
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-1", "Anthropic fallback response", 9, 4, 13));
+        mockProviderAdapter.enqueueFailure("openai", new UpstreamProviderException("openai", 500, 500, "server_error", true, "openai down"));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "model-1", "Anthropic fallback response", 9, 4, 13));
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -75,7 +75,7 @@ class RoutingIntegrationTest extends BaseGatewayTest {
                 .jsonPath("$.metadata.routing[1].provider").isEqualTo("anthropic")
                 .jsonPath("$.metadata.routing[1].succeeded").isEqualTo(true);
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-2", "Anthropic still primary while openai cools down", 7, 3, 10));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "model-2", "Anthropic still primary while openai cools down", 7, 3, 10));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -100,8 +100,8 @@ class RoutingIntegrationTest extends BaseGatewayTest {
 
     @Test
     void upstreamClientErrorDoesNotFallbackAndReturnsSameStatus() {
-        mockProviderAdapter.enqueueFailure(new UpstreamProviderException("openai", 400, 400, "gateway_error", false, "bad request"));
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-3", "should not fallback", 1, 1, 2));
+        mockProviderAdapter.enqueueFailure("openai", new UpstreamProviderException("openai", 400, 400, "gateway_error", false, "bad request"));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "model-3", "should not fallback", 1, 1, 2));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -117,8 +117,8 @@ class RoutingIntegrationTest extends BaseGatewayTest {
 
     @Test
     void upstreamRateLimitFallsBackToNextProvider() {
-        mockProviderAdapter.enqueueFailure(UpstreamProviderException.fromStatus("openai", 429, "rate limited"));
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-4", "Anthropic after 429", 9, 4, 13));
+        mockProviderAdapter.enqueueFailure("openai", UpstreamProviderException.fromStatus("openai", 429, "rate limited"));
+        mockProviderAdapter.enqueueCompletionResponse("anthropic", mockResponse("anthropic", "model-4", "Anthropic after 429", 9, 4, 13));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")

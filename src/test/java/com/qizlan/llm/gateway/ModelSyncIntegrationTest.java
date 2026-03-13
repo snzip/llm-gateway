@@ -17,7 +17,7 @@ class ModelSyncIntegrationTest extends BaseGatewayTest {
                 new ProviderModelDescriptor("openai", "gpt-4.1-mini", "gpt-4.1-mini", "GPT-4.1 Mini", "gpt", true, false, false, true, false, 1, 4096, 2, 2),
                 new ProviderModelDescriptor("openai", "gpt-image-1", "gpt-image-1", "GPT Image 1", "image", false, true, false, false, true, 2, 4096, 5, 5)
         );
-        mockProviderAdapter.enqueueModelList(descriptors);
+        mockProviderAdapter.enqueueModelList("openai", descriptors);
 
         webTestClient.post().uri(uriBuilder -> uriBuilder.path("/internal/models/sync").queryParam("provider", "openai").build())
                 .exchange()

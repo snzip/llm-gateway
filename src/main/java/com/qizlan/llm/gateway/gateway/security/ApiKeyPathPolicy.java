@@ -15,7 +15,8 @@ public class ApiKeyPathPolicy {
             "/json",
             "/.well-known",
             "/oauth",
-            "/auth"
+            "/auth",
+            "/mcp"
     );
 
     private final GatewayProperties properties;
@@ -38,7 +39,7 @@ public class ApiKeyPathPolicy {
                 || path.startsWith("/guardrails") || path.startsWith("/audit-logs")
                 || path.startsWith("/admin") || path.startsWith("/team") || path.startsWith("/payments")
                 || path.startsWith("/subscriptions") || path.startsWith("/dev-plans") || path.startsWith("/beacon")
-                || path.startsWith("/referral") || path.startsWith("/public") || path.startsWith("/mcp");
+                || path.startsWith("/referral") || path.startsWith("/public");
     }
 
     public String apiKeyHeader() {

@@ -15,7 +15,7 @@ class ApiKeyManagementIntegrationTest extends BaseGatewayTest {
         String apiKeyId = read(keyResult, "/id");
         String rawToken = read(keyResult, "/token");
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "Managed key works", 10, 5, 15));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "Managed key works", 10, 5, 15));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

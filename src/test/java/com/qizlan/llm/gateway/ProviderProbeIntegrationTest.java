@@ -11,8 +11,8 @@ class ProviderProbeIntegrationTest extends BaseGatewayTest {
         List<ProviderModelDescriptor> descriptors = List.of(
                 new ProviderModelDescriptor("openai", "gpt-4o", "gpt-4o", "GPT-4o", "gpt", true, false, false, true, false, 1, 8192, 3, 3)
         );
-        mockProviderAdapter.enqueueModelList(descriptors);
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "pong", 1, 1, 2));
+        mockProviderAdapter.enqueueModelList("openai", descriptors);
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "pong", 1, 1, 2));
 
         webTestClient.post().uri(uriBuilder -> uriBuilder.path("/internal/providers/probe").queryParam("provider", "openai").build())
                 .exchange()

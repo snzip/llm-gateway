@@ -81,6 +81,9 @@ public class ModelSyncService {
 
     public int syncProvider(String providerId) {
         ProviderAdapter adapter = resolveAdapter(providerId);
+        if (adapter == mockProviderAdapter) {
+            mockProviderAdapter.setCurrentProviderId(providerId);
+        }
         ConflictPolicy conflictPolicy = resolveConflictPolicy();
         ProviderEntity provider = providerRepository.findById(providerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider entity: " + providerId));

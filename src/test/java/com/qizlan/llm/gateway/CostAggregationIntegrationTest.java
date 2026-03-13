@@ -14,7 +14,7 @@ class CostAggregationIntegrationTest extends BaseGatewayTest {
         EntityExchangeResult<byte[]> keyResult = createApiKey(organizationId, projectId, uniqueName("Cost Key"));
         String rawToken = read(keyResult, "/token");
 
-        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "cost works", 12, 6, 18));
+        mockProviderAdapter.enqueueCompletionResponse("openai", mockResponse("openai", "gpt-4o", "cost works", 12, 6, 18));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)
