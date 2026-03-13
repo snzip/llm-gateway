@@ -32,6 +32,8 @@ import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping("/v1")
+@io.swagger.v3.oas.annotations.tags.Tag(name = "Data Plane", description = "聊天/图片/Anthropic 数据面接口")
+@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "BearerAuth")
 public class V1Controller {
 
     private final ChatGatewayService chatGatewayService;
@@ -47,13 +49,13 @@ public class V1Controller {
     }
 
     @GetMapping("/models")
-    @Operation(summary = "List all available models")
+    @Operation(summary = "List all available models", description = "Returns the gateway-fused catalog of models, including metadata such as provider, context window, and pricing flags.")
     public Mono<Map<String, Object>> models() {
         return blocking(() -> Map.of("data", modelCatalogService.listModels()));
     }
 
     @PostMapping(value = "/chat/completions", produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
-    @Operation(summary = "Create a completion for the chat conversation")
+    @Operation(summary = "Create a completion for the chat conversation", description = "Sends chat messages to the routed provider, supports tool calls, reasoning, and JSON streaming responses under `/v1/chat/completions`.")
     public Object chat(@Valid @RequestBody ChatCompletionRequest request, ServerWebExchange exchange) {
         if (!request.streamEnabled()) {
             return chatGatewayService.completeAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
@@ -62,13 +64,13 @@ public class V1Controller {
     }
 
     @PostMapping("/images/generations")
-    @Operation(summary = "Create image")
+    @Operation(summary = "Create image", description = "Generate an image from text prompts via the routed provider. Outputs base64-encoded image data.")
     public Mono<ImageDtos.ImageResponse> imageGeneration(@Valid @RequestBody ImageDtos.ImageGenerationRequest request, ServerWebExchange exchange) {
         return imageGatewayService.generateAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
     }
 
     @PostMapping(value = "/images/edits", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Edit image")
+    @Operation(summary = "Edit image", description = "Performs image editing by blending the provided prompt with the supplied image or multipart payload, returning revised assets.")
     public Mono<ImageDtos.ImageResponse> imageEditJson(@Valid @RequestBody ImageDtos.ImageEditRequest request, ServerWebExchange exchange) {
         return imageGatewayService.editAsync(request, exchange.getAttribute("apiKey"), requestContextService.get(exchange));
     }
@@ -93,7 +95,7 @@ public class V1Controller {
     }
 
     @PostMapping(value = "/messages", produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
-    @Operation(summary = "Anthropic Messages compatibility")
+    @Operation(summary = "Anthropic Messages compatibility", description = "Adapter endpoint for Anthropic-style `/v1/messages`. Converts incoming Anthropic message structure into the internal chat completion flow.")
     public Object anthropic(@Valid @RequestBody AnthropicDtos.AnthropicRequest request, ServerWebExchange exchange) {
         ChatCompletionRequest transformed = new ChatCompletionRequest(
                 request.model(),

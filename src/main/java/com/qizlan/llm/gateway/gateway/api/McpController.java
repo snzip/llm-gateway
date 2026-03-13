@@ -25,9 +25,11 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.http.HttpStatus;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import reactor.core.scheduler.Scheduler;
 
 @RestController
+@io.swagger.v3.oas.annotations.tags.Tag(name = "MCP", description = "多方委托协议入口和 OAuth")
+@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "BearerAuth")
 public class McpController {
 
     private final ProviderProbeService providerProbeService;
@@ -36,6 +38,7 @@ public class McpController {
     private final OAuthService oAuthService;
     private final RequestContextService requestContextService;
     private final GatewayProperties properties;
+    private final Scheduler controlPlaneScheduler;
 
     public McpController(
             ProviderProbeService providerProbeService,
@@ -43,7 +46,8 @@ public class McpController {
             McpSessionService mcpSessionService,
             OAuthService oAuthService,
             RequestContextService requestContextService,
-            GatewayProperties properties
+            GatewayProperties properties,
+            Scheduler controlPlaneScheduler
     ) {
         this.providerProbeService = providerProbeService;
         this.mcpService = mcpService;
@@ -51,6 +55,7 @@ public class McpController {
         this.oAuthService = oAuthService;
         this.requestContextService = requestContextService;
         this.properties = properties;
+        this.controlPlaneScheduler = controlPlaneScheduler;
     }
 
     @PostMapping("/internal/providers/probe")
@@ -227,6 +232,6 @@ public class McpController {
     }
 
     private <T> Mono<T> blocking(java.util.concurrent.Callable<T> action) {
-        return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(action).subscribeOn(controlPlaneScheduler);
     }
 }

@@ -18,6 +18,7 @@ import com.qizlan.llm.gateway.persistence.entity.GuardrailViolationEntity;
 import com.qizlan.llm.gateway.persistence.entity.OrganizationEntity;
 import com.qizlan.llm.gateway.persistence.entity.ProjectEntity;
 import com.qizlan.llm.gateway.persistence.entity.RequestLogEntity;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Map;
@@ -33,10 +34,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import reactor.core.scheduler.Scheduler;
 
 @RestController
 @RequestMapping
+@io.swagger.v3.oas.annotations.tags.Tag(name = "Control Plane", description = "组织/项目/API key/日志/守卫等控制面接口")
+@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "BearerAuth")
 public class ControlPlaneController {
 
     private final ControlPlaneService controlPlaneService;
@@ -48,6 +51,7 @@ public class ControlPlaneController {
     private final GuardrailService guardrailService;
     private final ObjectMapper objectMapper;
     private final RequestContextService requestContextService;
+    private final Scheduler controlPlaneScheduler;
 
     public ControlPlaneController(
             ControlPlaneService controlPlaneService,
@@ -58,7 +62,8 @@ public class ControlPlaneController {
             ModelSyncService modelSyncService,
             GuardrailService guardrailService,
             ObjectMapper objectMapper,
-            RequestContextService requestContextService
+            RequestContextService requestContextService,
+            Scheduler controlPlaneScheduler
     ) {
         this.controlPlaneService = controlPlaneService;
         this.requestLogService = requestLogService;
@@ -69,24 +74,29 @@ public class ControlPlaneController {
         this.guardrailService = guardrailService;
         this.objectMapper = objectMapper;
         this.requestContextService = requestContextService;
+        this.controlPlaneScheduler = controlPlaneScheduler;
     }
 
     @GetMapping("/orgs")
+    @Operation(summary = "List organizations", description = "Return all active organizations visible to the control-plane admin.")
     public Mono<List<Map<String, Object>>> listOrganizations() {
         return blocking(() -> controlPlaneService.listOrganizations().stream().map(this::toOrganization).toList());
     }
 
     @PostMapping("/orgs")
+    @Operation(summary = "Create organization", description = "Create an organization entity and write an audit log entry.")
     public Mono<Map<String, Object>> createOrganization(@RequestBody OrganizationUpsertRequest request, ServerWebExchange exchange) {
         return blocking(() -> toOrganization(controlPlaneService.createOrganization(requestContextService.get(exchange), request.name())));
     }
 
     @PatchMapping("/orgs/{id}")
+    @Operation(summary = "Update organization", description = "Rename an organization.")
     public Mono<Map<String, Object>> updateOrganization(@PathVariable String id, @RequestBody OrganizationUpsertRequest request, ServerWebExchange exchange) {
         return blocking(() -> toOrganization(controlPlaneService.updateOrganization(requestContextService.get(exchange), id, request.name())));
     }
 
     @DeleteMapping("/orgs/{id}")
+    @Operation(summary = "Deactivate organization", description = "Soft-disable an organization to prevent new activity while retaining historical data.")
     public Mono<ResponseEntity<Void>> deleteOrganization(@PathVariable String id, ServerWebExchange exchange) {
         return blocking(() -> {
             controlPlaneService.deleteOrganization(requestContextService.get(exchange), id);
@@ -95,26 +105,31 @@ public class ControlPlaneController {
     }
 
     @GetMapping("/projects")
+    @Operation(summary = "List projects", description = "List all projects across organizations.")
     public Mono<List<Map<String, Object>>> listProjects() {
         return blocking(() -> controlPlaneService.listProjects().stream().map(this::toProject).toList());
     }
 
     @PostMapping("/projects")
+    @Operation(summary = "Create project", description = "Provision a new project under an organization.")
     public Mono<Map<String, Object>> createProject(@RequestBody ProjectUpsertRequest request, ServerWebExchange exchange) {
         return blocking(() -> toProject(controlPlaneService.createProject(requestContextService.get(exchange), request.organizationId(), request.name())));
     }
 
     @GetMapping("/projects/{id}")
+    @Operation(summary = "Get project", description = "Retrieve project metadata.")
     public Mono<Map<String, Object>> getProject(@PathVariable String id) {
         return blocking(() -> toProject(controlPlaneService.getProject(id)));
     }
 
     @PatchMapping("/projects/{id}")
+    @Operation(summary = "Rename project", description = "Update the name of a project.")
     public Mono<Map<String, Object>> updateProject(@PathVariable String id, @RequestBody ProjectRenameRequest request, ServerWebExchange exchange) {
         return blocking(() -> toProject(controlPlaneService.updateProject(requestContextService.get(exchange), id, request.name())));
     }
 
     @DeleteMapping("/projects/{id}")
+    @Operation(summary = "Deactivate project", description = "Soft-delete project while keeping billing/account history.")
     public Mono<ResponseEntity<Void>> deleteProject(@PathVariable String id, ServerWebExchange exchange) {
         return blocking(() -> {
             controlPlaneService.deleteProject(requestContextService.get(exchange), id);
@@ -123,6 +138,7 @@ public class ControlPlaneController {
     }
 
     @PostMapping("/keys/api")
+    @Operation(summary = "Create API key", description = "Generate a new API key for a project with audit metadata.")
     public Mono<Map<String, Object>> createApiKey(@RequestBody ApiKeyCreateRequest request, ServerWebExchange exchange) {
         return blocking(() -> {
             ControlPlaneService.ApiKeyCreateResult result = controlPlaneService.createApiKey(requestContextService.get(exchange), request.organizationId(), request.projectId(), request.name());
@@ -138,16 +154,19 @@ public class ControlPlaneController {
     }
 
     @GetMapping("/keys/api")
+    @Operation(summary = "List API keys", description = "List API keys across projects with metadata for budget/limits.")
     public Mono<List<Map<String, Object>>> listApiKeys() {
         return blocking(() -> controlPlaneService.listApiKeys().stream().map(this::toApiKey).toList());
     }
 
     @PatchMapping("/keys/api/{id}")
+    @Operation(summary = "Update API key", description = "Adjust key status, budget, and rate limits.")
     public Mono<Map<String, Object>> updateApiKey(@PathVariable String id, @RequestBody ApiKeyPatchRequest request, ServerWebExchange exchange) {
         return blocking(() -> toApiKey(controlPlaneService.updateApiKey(requestContextService.get(exchange), id, request.name(), request.active(), request.budget_micros_usd(), request.requests_per_minute_limit())));
     }
 
     @DeleteMapping("/keys/api/{id}")
+    @Operation(summary = "Revoke API key", description = "Deactivate an API key while keeping the reference for audit.")
     public Mono<ResponseEntity<Void>> deleteApiKey(@PathVariable String id, ServerWebExchange exchange) {
         return blocking(() -> {
             controlPlaneService.revokeApiKey(requestContextService.get(exchange), id);
@@ -156,21 +175,25 @@ public class ControlPlaneController {
     }
 
     @PostMapping("/keys/api/{id}/iam")
+    @Operation(summary = "Create IAM rule", description = "Attach an IAM rule (path/model/provider/rate) to an API key.")
     public Mono<Map<String, Object>> createIamRule(@PathVariable String id, @RequestBody IamRuleCreateRequest request, ServerWebExchange exchange) {
         return blocking(() -> toIamRule(controlPlaneService.createIamRule(requestContextService.get(exchange), id, request.rule_type(), request.effect(), request.pattern())));
     }
 
     @GetMapping("/keys/api/{id}/iam")
+    @Operation(summary = "List IAM rules", description = "Return IAM policy rules associated with the given API key.")
     public Mono<List<Map<String, Object>>> listIamRules(@PathVariable String id) {
         return blocking(() -> controlPlaneService.listIamRules(id).stream().map(this::toIamRule).toList());
     }
 
     @PatchMapping("/keys/api/{id}/iam/{ruleId}")
+    @Operation(summary = "Update IAM rule", description = "Modify an existing IAM rule for an API key.")
     public Mono<Map<String, Object>> updateIamRule(@PathVariable String id, @PathVariable String ruleId, @RequestBody IamRulePatchRequest request, ServerWebExchange exchange) {
         return blocking(() -> toIamRule(controlPlaneService.updateIamRule(requestContextService.get(exchange), id, ruleId, request.rule_type(), request.effect(), request.pattern(), request.active())));
     }
 
     @DeleteMapping("/keys/api/{id}/iam/{ruleId}")
+    @Operation(summary = "Delete IAM rule", description = "Remove an IAM rule from an API key.")
     public Mono<ResponseEntity<Void>> deleteIamRule(@PathVariable String id, @PathVariable String ruleId, ServerWebExchange exchange) {
         return blocking(() -> {
             controlPlaneService.deleteIamRule(requestContextService.get(exchange), id, ruleId);
@@ -179,16 +202,19 @@ public class ControlPlaneController {
     }
 
     @GetMapping("/logs")
+    @Operation(summary = "List request logs", description = "Return recent gateway request logs sorted by creation time.")
     public Mono<List<Map<String, Object>>> listLogs() {
         return blocking(() -> requestLogService.list().stream().map(this::toLog).toList());
     }
 
     @GetMapping("/logs/{id}")
+    @Operation(summary = "Get log", description = "Fetch a single request log by ID.")
     public Mono<Map<String, Object>> getLog(@PathVariable String id) {
         return blocking(() -> toLog(requestLogService.get(id)));
     }
 
     @GetMapping("/costs/summary")
+    @Operation(summary = "Summarize costs", description = "Aggregate request costs grouped by provider/model/org/project.")
     public Mono<Map<String, Object>> costSummary(
             @RequestParam(name = "group_by", required = false) String groupBy,
             @RequestParam(name = "organization_id", required = false) String organizationId,
@@ -199,6 +225,7 @@ public class ControlPlaneController {
     }
 
     @GetMapping("/costs/timeseries")
+    @Operation(summary = "Cost timeseries", description = "Return cost over time buckets.")
     public Mono<Map<String, Object>> costTimeseries(
             @RequestParam(name = "bucket", required = false) String bucket,
             @RequestParam(name = "group_by", required = false) String groupBy,
@@ -484,6 +511,6 @@ public class ControlPlaneController {
     }
 
     private <T> Mono<T> blocking(java.util.concurrent.Callable<T> action) {
-        return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(action).subscribeOn(controlPlaneScheduler);
     }
 }

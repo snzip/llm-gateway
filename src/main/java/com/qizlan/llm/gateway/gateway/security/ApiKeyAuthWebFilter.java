@@ -8,7 +8,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import reactor.core.scheduler.Scheduler;
 
 @Component
 public class ApiKeyAuthWebFilter implements WebFilter {
@@ -21,18 +21,22 @@ public class ApiKeyAuthWebFilter implements WebFilter {
     private final ApiKeyRateLimitService apiKeyRateLimitService;
     private final ApiKeyLookupCache apiKeyLookupCache;
 
+    private final Scheduler controlPlaneScheduler;
+
     public ApiKeyAuthWebFilter(
             GatewayProperties properties,
             ApiKeyTokenService tokenService,
             IamRuleService iamRuleService,
             ApiKeyRateLimitService apiKeyRateLimitService,
-            ApiKeyLookupCache apiKeyLookupCache
+            ApiKeyLookupCache apiKeyLookupCache,
+            Scheduler controlPlaneScheduler
     ) {
         this.properties = properties;
         this.tokenService = tokenService;
         this.iamRuleService = iamRuleService;
         this.apiKeyRateLimitService = apiKeyRateLimitService;
         this.apiKeyLookupCache = apiKeyLookupCache;
+        this.controlPlaneScheduler = controlPlaneScheduler;
     }
 
     @Override
@@ -42,7 +46,7 @@ public class ApiKeyAuthWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
         return Mono.fromCallable(() -> authenticate(exchange))
-                .subscribeOn(Schedulers.boundedElastic())
+                .subscribeOn(controlPlaneScheduler)
                 .flatMap(apiKey -> {
                     exchange.getAttributes().put(API_KEY_ATTR, apiKey);
                     return chain.filter(exchange);
