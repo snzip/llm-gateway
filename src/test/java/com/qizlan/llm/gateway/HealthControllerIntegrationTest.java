@@ -2,7 +2,7 @@ package com.qizlan.llm.gateway;
 
 import org.junit.jupiter.api.Test;
 
-class HealthControllerIntegrationTest extends AbstractIntegrationTest {
+class HealthControllerIntegrationTest extends BaseGatewayTest {
 
     @Test
     void healthEndpointWorks() {

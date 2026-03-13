@@ -5,7 +5,7 @@ import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
 import static org.hamcrest.Matchers.greaterThan;
 
-class CostAggregationIntegrationTest extends AbstractIntegrationTest {
+class CostAggregationIntegrationTest extends BaseGatewayTest {
 
     @Test
     void costSummaryAndTimeseriesWorkForProjectTraffic() {
@@ -14,13 +14,7 @@ class CostAggregationIntegrationTest extends AbstractIntegrationTest {
         EntityExchangeResult<byte[]> keyResult = createApiKey(organizationId, projectId, uniqueName("Cost Key"));
         String rawToken = read(keyResult, "/token");
 
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id": "chatcmpl-cost-1",
-                  "choices": [{"message": {"role": "assistant", "content": "cost works"}}],
-                  "usage": {"prompt_tokens": 12, "completion_tokens": 6, "total_tokens": 18}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "cost works", 12, 6, 18));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

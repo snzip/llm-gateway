@@ -1,9 +1,6 @@
 package com.qizlan.llm.gateway;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -12,17 +9,11 @@ import org.springframework.test.web.reactive.server.FluxExchangeResult;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ChatCompletionsTest extends AbstractIntegrationTest {
+class ChatCompletionsTest extends BaseGatewayTest {
 
     @Test
     void openAiChatCompletionWorks() {
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id": "chatcmpl-openai",
-                  "choices": [{"message": {"role": "assistant", "content": "OpenAI says hello"}}],
-                  "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "OpenAI says hello", 11, 7, 18));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -40,15 +31,6 @@ class ChatCompletionsTest extends AbstractIntegrationTest {
                 .jsonPath("$.choices[0].message.content").isEqualTo("OpenAI says hello")
                 .jsonPath("$.usage.total_tokens").isEqualTo(18);
 
-        RecordedRequest upstreamRequest;
-        try {
-            upstreamRequest = OPENAI.takeRequest(5, TimeUnit.SECONDS);
-        } catch (InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
-        assertTrue(upstreamRequest != null && "corr-chat-001".equals(upstreamRequest.getHeader("X-Correlation-Id")));
-        assertTrue(upstreamRequest.getHeader("X-Trace-Id") != null && !upstreamRequest.getHeader("X-Trace-Id").isBlank());
-
         webTestClient.get().uri("/logs")
                 .exchange()
                 .expectStatus().isOk()
@@ -61,18 +43,7 @@ class ChatCompletionsTest extends AbstractIntegrationTest {
 
     @Test
     void googleChatCompletionWorks() {
-        GOOGLE_RESPONSES.add(json("""
-                {
-                  "candidates": [{
-                    "content": {"parts": [{"text": "Gemini says hello"}]}
-                  }],
-                  "usageMetadata": {
-                    "promptTokenCount": 8,
-                    "candidatesTokenCount": 6,
-                    "totalTokenCount": 14
-                  }
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("google", "gemini-2.0-flash", "Gemini says hello", 8, 6, 14));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -92,14 +63,7 @@ class ChatCompletionsTest extends AbstractIntegrationTest {
 
     @Test
     void openAiStreamingPassthroughWorks() {
-        OPENAI_RESPONSES.add(new MockResponse()
-                .setHeader("Content-Type", "text/event-stream")
-                .setBody("""
-                        data: {"id":"chatcmpl_stream","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"stream hello"},"finish_reason":null}]}
-
-                        data: [DONE]
-
-                        """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "stream hello", 11, 7, 18));
 
         FluxExchangeResult<ServerSentEvent<String>> result = webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")

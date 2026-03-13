@@ -3,7 +3,7 @@ package com.qizlan.llm.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
-class IamRuleIntegrationTest extends AbstractIntegrationTest {
+class IamRuleIntegrationTest extends BaseGatewayTest {
 
     @Test
     void iamRulesCanFilterProviderAndRateLimitRequests() {
@@ -37,14 +37,7 @@ class IamRuleIntegrationTest extends AbstractIntegrationTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_iam_1",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "IAM anthropic success"}],
-                  "usage": {"input_tokens": 10, "output_tokens": 5}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "gateway-text", "IAM anthropic success", 10, 5, 15));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

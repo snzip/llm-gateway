@@ -7,21 +7,10 @@ import org.springframework.web.reactive.function.BodyInserters;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ImagesApiTest extends AbstractIntegrationTest {
+class ImagesApiTest extends BaseGatewayTest {
 
     @Test
     void imageEndpointsAndResponsesPlaceholderWork() {
-        GOOGLE_RESPONSES.add(json("""
-                {
-                  "candidates": [{
-                    "content": {
-                      "parts": [{"inlineData": {"data": "R0lGODlhAQABAIAAAAUEBA=="}}
-                      ]
-                    }
-                  }]
-                }
-                """));
-
         webTestClient.post().uri("/v1/images/generations")
                 .header("Authorization", "Bearer test-api-key")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -31,18 +20,7 @@ class ImagesApiTest extends AbstractIntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.data[0].b64_json").isEqualTo("R0lGODlhAQABAIAAAAUEBA==");
-
-        GOOGLE_RESPONSES.add(json("""
-                {
-                  "candidates": [{
-                    "content": {
-                      "parts": [{"inlineData": {"data": "Q0FUVEVTVA=="}}]
-                    }
-                  }]
-                }
-                """));
-
+                .jsonPath("$.data[0].revised_prompt").isEqualTo("draw a cat");
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("prompt", "edit this");
         builder.part("image", new NamedByteArrayResource("test.png", "png".getBytes()))
@@ -64,6 +42,7 @@ class ImagesApiTest extends AbstractIntegrationTest {
                 .expectBody(String.class).value(body -> assertTrue(body.contains("not supported")));
 
         webTestClient.post().uri("/v1/chat/completions")
+                .header("Authorization", "Bearer invalid-api-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {"model":"gpt-4o","messages":[{"role":"user","content":"hello gateway"}]}

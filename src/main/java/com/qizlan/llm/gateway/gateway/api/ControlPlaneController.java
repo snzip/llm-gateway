@@ -42,6 +42,10 @@ import reactor.core.scheduler.Scheduler;
 @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "BearerAuth")
 public class ControlPlaneController {
 
+    // TODO: add /team/{organizationId}/members endpoints (list/invite/update/remove) per requirements 7.3
+    // TODO: expose /beacon, /referral and the /auth/* replacement surface from requirements 7.2
+    // TODO: implement /public/discounts/model/{modelId} and remaining admin/report endpoints from section 7.6
+
     private final ControlPlaneService controlPlaneService;
     private final RequestLogService requestLogService;
     private final CostAggregationService costAggregationService;

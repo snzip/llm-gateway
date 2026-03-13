@@ -31,8 +31,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UpstreamProviderException.class)
     public ResponseEntity<ApiErrorResponse> handleUpstream(UpstreamProviderException ex) {
+        String message = ex.getProviderId() + " upstream error: " + ex.getStatusCode();
+        if (ex.getMessage() != null && !ex.getMessage().isBlank()) {
+            message += " - " + ex.getMessage();
+        }
         return ResponseEntity.status(ex.getGatewayStatus())
-                .body(new ApiErrorResponse(true, ex.getGatewayStatus(), ex.getMessage()));
+                .body(new ApiErrorResponse(true, ex.getGatewayStatus(), message));
     }
 
     @ExceptionHandler(ApiKeyAccessDeniedException.class)

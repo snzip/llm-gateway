@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class RequestLogPayloadSanitizerTest extends AbstractIntegrationTest {
+class RequestLogPayloadSanitizerTest extends BaseGatewayTest {
 
     @Autowired
     private RequestLogPayloadSanitizer sanitizer;

@@ -3,7 +3,7 @@ package com.qizlan.llm.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
-class AdminControllerIntegrationTest extends AbstractIntegrationTest {
+class AdminControllerIntegrationTest extends BaseGatewayTest {
 
     @Test
     void adminMetricsEndpointsReturnOrganizationProjectAndCostData() {
@@ -12,13 +12,7 @@ class AdminControllerIntegrationTest extends AbstractIntegrationTest {
         EntityExchangeResult<byte[]> keyResult = createApiKey(organizationId, projectId, uniqueName("Admin Key"));
         String rawToken = read(keyResult, "/token");
 
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id": "chatcmpl-admin-1",
-                  "choices": [{"message": {"role": "assistant", "content": "admin works"}}],
-                  "usage": {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "admin works", 9, 4, 13));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

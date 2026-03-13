@@ -2,8 +2,12 @@ package com.qizlan.llm.gateway.gateway.provider;
 
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
 import com.qizlan.llm.gateway.gateway.dto.ImageDtos;
+import com.qizlan.llm.gateway.gateway.provider.ProviderModelDescriptor;
+import com.qizlan.llm.gateway.gateway.provider.UpstreamProviderException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -11,6 +15,28 @@ import reactor.core.publisher.Mono;
 
 @Component
 public class MockProviderAdapter implements ProviderAdapter {
+
+    private final BlockingQueue<ProviderChatResult> completionResponses = new LinkedBlockingQueue<>();
+    private final BlockingQueue<UpstreamProviderException> completionFailures = new LinkedBlockingQueue<>();
+    private final BlockingQueue<List<ProviderModelDescriptor>> modelDescriptors = new LinkedBlockingQueue<>();
+
+    public void enqueueCompletionResponse(ProviderChatResult result) {
+        completionResponses.add(result);
+    }
+
+    public void enqueueModelList(List<ProviderModelDescriptor> descriptors) {
+        modelDescriptors.add(descriptors);
+    }
+
+    public void reset() {
+        completionResponses.clear();
+        completionFailures.clear();
+        modelDescriptors.clear();
+    }
+
+    public void enqueueFailure(UpstreamProviderException failure) {
+        completionFailures.add(failure);
+    }
 
     @Override
     public String providerId() {
@@ -26,10 +52,14 @@ public class MockProviderAdapter implements ProviderAdapter {
                 .filter(value -> !value.isBlank())
                 .reduce((a, b) -> a + "\n" + b)
                 .orElse("No prompt");
-        String content = imageRequest
+        UpstreamProviderException failure = completionFailures.poll();
+        if (failure != null) {
+            throw failure;
+        }
+        String fallback = imageRequest
                 ? "Generated image for prompt: " + promptSummary
                 : "Mock response for " + providerModel + ": " + promptSummary;
-        return new ProviderChatResult("mock", providerModel, content, imageRequest, 12, 24, 36);
+        return nextResult(providerModel, fallback, imageRequest);
     }
 
     @Override
@@ -59,16 +89,18 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public List<ProviderModelDescriptor> listModels() {
-        return List.of();
+        List<ProviderModelDescriptor> queued = modelDescriptors.poll();
+        return queued == null ? List.of() : queued;
     }
 
     @Override
     public void streamChat(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format, Consumer<ProviderStreamEvent> consumer) {
+        ProviderChatResult result = nextResult(providerModel, "mock stream", false);
         consumer.accept(new ProviderStreamEvent(
                 format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
                 format == ProviderStreamFormat.ANTHROPIC
-                        ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"mock stream\"}}"
-                        : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"mock stream\"},\"finish_reason\":null}]}",
+                        ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + result.content() + "\"}}"
+                        : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"" + result.content() + "\"},\"finish_reason\":null}]}",
                 false
         ));
         consumer.accept(new ProviderStreamEvent(format == ProviderStreamFormat.ANTHROPIC ? "message_stop" : null, format == ProviderStreamFormat.ANTHROPIC ? "{\"type\":\"message_stop\"}" : "[DONE]", true));
@@ -98,15 +130,24 @@ public class MockProviderAdapter implements ProviderAdapter {
 
     @Override
     public Flux<ProviderStreamEvent> streamChatAsync(ChatCompletionRequest request, String providerModel, ProviderStreamFormat format) {
+        ProviderChatResult result = nextResult(providerModel, "mock stream", false);
         return Flux.just(
                 new ProviderStreamEvent(
                         format == ProviderStreamFormat.ANTHROPIC ? "content_block_delta" : null,
                         format == ProviderStreamFormat.ANTHROPIC
-                                ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"mock stream\"}}"
-                                : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"mock stream\"},\"finish_reason\":null}]}",
+                                ? "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + result.content() + "\"}}"
+                                : "{\"id\":\"chatcmpl_mock\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"" + result.content() + "\"},\"finish_reason\":null}]}",
                         false
                 ),
                 new ProviderStreamEvent(format == ProviderStreamFormat.ANTHROPIC ? "message_stop" : null, format == ProviderStreamFormat.ANTHROPIC ? "{\"type\":\"message_stop\"}" : "[DONE]", true)
         );
+    }
+
+    private ProviderChatResult nextResult(String providerModel, String fallback, boolean imageRequest) {
+        ProviderChatResult queued = completionResponses.poll();
+        if (queued != null) {
+            return queued;
+        }
+        return new ProviderChatResult("mock", providerModel, fallback, imageRequest, 12, 24, 36);
     }
 }

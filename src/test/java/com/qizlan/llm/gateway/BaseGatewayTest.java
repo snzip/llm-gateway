@@ -2,15 +2,11 @@ package com.qizlan.llm.gateway;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qizlan.llm.gateway.config.GatewayProperties;
+import com.qizlan.llm.gateway.gateway.provider.MockProviderAdapter;
+import com.qizlan.llm.gateway.gateway.provider.ProviderChatResult;
 import com.qizlan.llm.gateway.gateway.service.ProviderHealthService;
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import okhttp3.mockwebserver.Dispatcher;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.MockWebServer;
-import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
@@ -18,20 +14,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.context.annotation.Import;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureWebTestClient
-abstract class AbstractIntegrationTest {
-
-    protected static final BlockingQueue<MockResponse> OPENAI_RESPONSES = new LinkedBlockingQueue<>();
-    protected static final BlockingQueue<MockResponse> ANTHROPIC_RESPONSES = new LinkedBlockingQueue<>();
-    protected static final BlockingQueue<MockResponse> GOOGLE_RESPONSES = new LinkedBlockingQueue<>();
-    protected static final MockWebServer OPENAI = startServer(OPENAI_RESPONSES);
-    protected static final MockWebServer ANTHROPIC = startServer(ANTHROPIC_RESPONSES);
-    protected static final MockWebServer GOOGLE = startServer(GOOGLE_RESPONSES);
+@TestPropertySource(properties = "spring.security.webflux.csrf.enabled=false")
+@Import(TestSecurityConfig.class)
+abstract class BaseGatewayTest {
 
     @Autowired
     protected WebTestClient webTestClient;
@@ -42,39 +36,37 @@ abstract class AbstractIntegrationTest {
     @Autowired
     protected ProviderHealthService providerHealthService;
 
+    @Autowired
+    protected MockProviderAdapter mockProviderAdapter;
+
+    @Autowired
+    private GatewayProperties gatewayProperties;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("llm.gateway.providers.mode", () -> "real");
+        registry.add("llm.gateway.providers.mode", () -> "mock");
         registry.add("llm.gateway.providers.openai.enabled", () -> true);
-        registry.add("llm.gateway.providers.openai.base-url", () -> OPENAI.url("/").toString());
-        registry.add("llm.gateway.providers.openai.api-key", () -> "openai-test-key");
         registry.add("llm.gateway.providers.anthropic.enabled", () -> true);
-        registry.add("llm.gateway.providers.anthropic.base-url", () -> ANTHROPIC.url("/").toString());
-        registry.add("llm.gateway.providers.anthropic.api-key", () -> "anthropic-test-key");
         registry.add("llm.gateway.providers.google.enabled", () -> true);
-        registry.add("llm.gateway.providers.google.base-url", () -> GOOGLE.url("/").toString());
-        registry.add("llm.gateway.providers.google.api-key", () -> "google-test-key");
+    }
+
+    @BeforeEach
+    void configureDefaultAuthHeader() {
+        GatewayProperties.SeedProperties seed = gatewayProperties.seed();
+        if (seed != null && seed.enabled()) {
+            String apiKey = seed.apiKey();
+            if (apiKey != null && !apiKey.isBlank()) {
+                webTestClient = webTestClient.mutate()
+                        .defaultHeader(gatewayProperties.apiKeyHeader(), "Bearer " + apiKey)
+                        .build();
+            }
+        }
     }
 
     @BeforeEach
     void clearMockResponses() {
-        OPENAI_RESPONSES.clear();
-        ANTHROPIC_RESPONSES.clear();
-        GOOGLE_RESPONSES.clear();
-        drainRequests(OPENAI);
-        drainRequests(ANTHROPIC);
-        drainRequests(GOOGLE);
+        mockProviderAdapter.reset();
         ((java.util.Map<?, ?>) ReflectionTestUtils.getField(providerHealthService, "states")).clear();
-    }
-
-    private void drainRequests(MockWebServer server) {
-        try {
-            while (server.takeRequest(10, TimeUnit.MILLISECONDS) != null) {
-                // drain recorded requests to keep test assertions isolated
-            }
-        } catch (InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
     }
 
     protected String createOrganization(String name) {
@@ -127,39 +119,6 @@ abstract class AbstractIntegrationTest {
         return prefix + "-" + System.nanoTime();
     }
 
-    protected static MockResponse json(String body) {
-        return new MockResponse()
-                .setHeader("Content-Type", "application/json")
-                .setBody(body);
-    }
-
-    private static MockWebServer startServer(BlockingQueue<MockResponse> queue) {
-        try {
-            MockWebServer server = new MockWebServer();
-            server.setDispatcher(queueDispatcher(queue));
-            server.start();
-            return server;
-        } catch (IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-    }
-
-    private static Dispatcher queueDispatcher(BlockingQueue<MockResponse> queue) {
-        return new Dispatcher() {
-            @Override
-            public MockResponse dispatch(RecordedRequest request) {
-                MockResponse response = queue.poll();
-                if (response != null) {
-                    return response;
-                }
-                return new MockResponse()
-                        .setResponseCode(500)
-                        .setHeader("Content-Type", "application/json")
-                        .setBody("{\"error\":{\"message\":\"no mock response queued\"}}");
-            }
-        };
-    }
-
     protected static final class NamedByteArrayResource extends ByteArrayResource {
         private final String filename;
 
@@ -172,5 +131,13 @@ abstract class AbstractIntegrationTest {
         public String getFilename() {
             return filename;
         }
+    }
+
+    protected ProviderChatResult mockResponse(String providerId, String model, String content) {
+        return mockResponse(providerId, model, content, 10, 5, 15);
+    }
+
+    protected ProviderChatResult mockResponse(String providerId, String model, String content, int promptTokens, int completionTokens, int totalTokens) {
+        return new ProviderChatResult(providerId, model, content, false, promptTokens, completionTokens, totalTokens);
     }
 }

@@ -3,7 +3,7 @@ package com.qizlan.llm.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
-class AuditLogIntegrationTest extends AbstractIntegrationTest {
+class AuditLogIntegrationTest extends BaseGatewayTest {
 
     @Test
     void auditLogCarriesExplicitRequestContextHeaders() {

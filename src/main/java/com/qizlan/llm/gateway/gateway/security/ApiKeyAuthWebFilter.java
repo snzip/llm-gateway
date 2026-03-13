@@ -2,7 +2,10 @@ package com.qizlan.llm.gateway.gateway.security;
 
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.persistence.entity.ApiKeyEntity;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -11,15 +14,18 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 
 @Component
+@Order(0)
 public class ApiKeyAuthWebFilter implements WebFilter {
 
     private static final String API_KEY_ATTR = "apiKey";
+    private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthWebFilter.class);
 
     private final GatewayProperties properties;
     private final ApiKeyTokenService tokenService;
     private final IamRuleService iamRuleService;
     private final ApiKeyRateLimitService apiKeyRateLimitService;
     private final ApiKeyLookupCache apiKeyLookupCache;
+    private final ApiKeyPathPolicy pathPolicy;
 
     private final Scheduler controlPlaneScheduler;
 
@@ -29,7 +35,8 @@ public class ApiKeyAuthWebFilter implements WebFilter {
             IamRuleService iamRuleService,
             ApiKeyRateLimitService apiKeyRateLimitService,
             ApiKeyLookupCache apiKeyLookupCache,
-            Scheduler controlPlaneScheduler
+            Scheduler controlPlaneScheduler,
+            ApiKeyPathPolicy pathPolicy
     ) {
         this.properties = properties;
         this.tokenService = tokenService;
@@ -37,12 +44,13 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         this.apiKeyRateLimitService = apiKeyRateLimitService;
         this.apiKeyLookupCache = apiKeyLookupCache;
         this.controlPlaneScheduler = controlPlaneScheduler;
+        this.pathPolicy = pathPolicy;
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
-        if (!requiresApiKey(path)) {
+        if (!pathPolicy.requiresApiKey(path)) {
             return chain.filter(exchange);
         }
         return Mono.fromCallable(() -> authenticate(exchange))
@@ -51,14 +59,10 @@ public class ApiKeyAuthWebFilter implements WebFilter {
                     exchange.getAttributes().put(API_KEY_ATTR, apiKey);
                     return chain.filter(exchange);
                 })
-                .onErrorResume(ApiKeyFailure.class, failure -> writeError(exchange, failure.status(), failure.getMessage()));
-    }
-
-    private boolean requiresApiKey(String path) {
-        if ("/v1/models".equals(path)) {
-            return false;
-        }
-        return path.startsWith("/v1/");
+                .onErrorResume(ApiKeyFailure.class, failure -> {
+                    log.debug("API key auth failed for {}: {}", exchange.getRequest().getPath().value(), failure.getMessage());
+                    return writeError(exchange, failure.status(), failure.getMessage());
+                });
     }
 
     private ApiKeyEntity authenticate(ServerWebExchange exchange) {

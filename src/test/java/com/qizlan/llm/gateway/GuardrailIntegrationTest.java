@@ -2,7 +2,7 @@ package com.qizlan.llm.gateway;
 
 import org.junit.jupiter.api.Test;
 
-class GuardrailIntegrationTest extends AbstractIntegrationTest {
+class GuardrailIntegrationTest extends BaseGatewayTest {
 
     @Test
     void guardrailEndpointsCanCreateBlockAndReportViolations() {

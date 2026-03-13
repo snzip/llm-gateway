@@ -3,7 +3,7 @@ package com.qizlan.llm.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
-class McpControllerIntegrationTest extends AbstractIntegrationTest {
+class McpControllerIntegrationTest extends BaseGatewayTest {
 
     @Test
     void oauthAndMcpEndpointsWorkWithBearerProtection() {
@@ -69,24 +69,22 @@ class McpControllerIntegrationTest extends AbstractIntegrationTest {
                 .expectBody()
                 .jsonPath("$.tools").isArray();
 
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id": "chatcmpl-mcp",
-                  "choices": [{"message": {"role": "assistant", "content": "MCP says hello"}}],
-                  "usage": {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "MCP says hello", 9, 4, 13));
 
         webTestClient.post().uri("/mcp")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {"method":"tools/call","name":"chat","arguments":{"model":"gpt-4o","prompt":"hello from mcp"}}
                         """)
+                .headers(headers -> headers.remove("Authorization"))
                 .exchange()
                 .expectStatus().isUnauthorized();
 
         webTestClient.post().uri("/mcp")
-                .header("Authorization", "Bearer " + accessToken)
+                .headers(headers -> {
+                    headers.remove("Authorization");
+                    headers.setBearerAuth(accessToken);
+                })
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {"method":"tools/call","name":"chat","arguments":{"model":"gpt-4o","prompt":"hello from mcp"}}
@@ -108,7 +106,10 @@ class McpControllerIntegrationTest extends AbstractIntegrationTest {
         String narrowAccessToken = read(narrowScopeTokenResult, "/access_token");
 
         webTestClient.post().uri("/mcp")
-                .header("Authorization", "Bearer " + narrowAccessToken)
+                .headers(headers -> {
+                    headers.remove("Authorization");
+                    headers.setBearerAuth(narrowAccessToken);
+                })
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {"method":"tools/call","name":"chat","arguments":{"model":"gpt-4o","prompt":"hello from mcp"}}

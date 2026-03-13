@@ -2,7 +2,7 @@ package com.qizlan.llm.gateway;
 
 import org.junit.jupiter.api.Test;
 
-class ModelCatalogIntegrationTest extends AbstractIntegrationTest {
+class ModelCatalogIntegrationTest extends BaseGatewayTest {
 
     @Test
     void modelsEndpointWorksWithoutAuth() {

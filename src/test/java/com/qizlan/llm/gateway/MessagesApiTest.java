@@ -3,18 +3,11 @@ package com.qizlan.llm.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
-class MessagesApiTest extends AbstractIntegrationTest {
+class MessagesApiTest extends BaseGatewayTest {
 
     @Test
     void anthropicCompatibilityWorks() {
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_123",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "Anthropic says hello"}],
-                  "usage": {"input_tokens": 13, "output_tokens": 9}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "claude-3-5-sonnet", "Anthropic says hello", 13, 9, 22));
 
         webTestClient.post().uri("/v1/messages")
                 .header("Authorization", "Bearer test-api-key")

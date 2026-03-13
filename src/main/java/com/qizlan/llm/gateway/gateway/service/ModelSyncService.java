@@ -3,6 +3,7 @@ package com.qizlan.llm.gateway.gateway.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qizlan.llm.gateway.config.GatewayProperties;
+import com.qizlan.llm.gateway.gateway.provider.MockProviderAdapter;
 import com.qizlan.llm.gateway.gateway.provider.ProviderAdapter;
 import com.qizlan.llm.gateway.gateway.provider.ProviderModelDescriptor;
 import com.qizlan.llm.gateway.persistence.entity.ModelEntity;
@@ -33,6 +34,8 @@ public class ModelSyncService {
     private final GatewayProperties properties;
     private final ObjectMapper objectMapper;
     private final RoutingService routingService;
+    private final String providerMode;
+    private final MockProviderAdapter mockProviderAdapter;
 
     public ModelSyncService(
             List<ProviderAdapter> providerAdapters,
@@ -42,7 +45,8 @@ public class ModelSyncService {
             ModelSyncHistoryRepository historyRepository,
             GatewayProperties properties,
             ObjectMapper objectMapper,
-            RoutingService routingService
+            RoutingService routingService,
+            MockProviderAdapter mockProviderAdapter
     ) {
         this.providerAdapters = providerAdapters;
         this.providerRepository = providerRepository;
@@ -52,6 +56,8 @@ public class ModelSyncService {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.routingService = routingService;
+        this.providerMode = properties.providers().mode();
+        this.mockProviderAdapter = mockProviderAdapter;
     }
 
     @Scheduled(fixedDelayString = "${llm.gateway.sync.fixed-delay-millis:3600000}")
@@ -74,10 +80,7 @@ public class ModelSyncService {
     }
 
     public int syncProvider(String providerId) {
-        ProviderAdapter adapter = providerAdapters.stream()
-                .filter(candidate -> candidate.providerId().equals(providerId))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown provider: " + providerId));
+        ProviderAdapter adapter = resolveAdapter(providerId);
         ConflictPolicy conflictPolicy = resolveConflictPolicy();
         ProviderEntity provider = providerRepository.findById(providerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider entity: " + providerId));
@@ -334,5 +337,15 @@ public class ModelSyncService {
                 .anyMatch(ModelProviderMappingEntity::isActive);
         model.setArchived(!hasActiveMappings);
         modelRepository.save(model);
+    }
+
+    private ProviderAdapter resolveAdapter(String providerId) {
+        if ("mock".equalsIgnoreCase(providerMode)) {
+            return mockProviderAdapter;
+        }
+        return providerAdapters.stream()
+                .filter(candidate -> candidate.providerId().equals(providerId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown provider: " + providerId));
     }
 }

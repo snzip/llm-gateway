@@ -86,3 +86,7 @@ llm:
         generate-image: ${LLM_GATEWAY_MCP_SCOPE_GENERATE_IMAGE:mcp.tool.generate-image}
         generate-nano-banana: ${LLM_GATEWAY_MCP_SCOPE_GENERATE_NANO_BANANA:mcp.tool.generate-nano-banana}
         list-image-models: ${LLM_GATEWAY_MCP_SCOPE_LIST_IMAGE_MODELS:mcp.tool.list-image-models}
+    auth:
+      seed-user-email: ${LLM_GATEWAY_AUTH_SEED_EMAIL:admin@example.com}
+      seed-user-password: ${LLM_GATEWAY_AUTH_SEED_PASSWORD:password}
+      seed-user-name: ${LLM_GATEWAY_AUTH_SEED_NAME:Administrator}

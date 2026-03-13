@@ -1,6 +1,7 @@
 package com.qizlan.llm.gateway.persistence.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -10,6 +11,7 @@ import java.util.UUID;
 @MappedSuperclass
 public abstract class BaseEntity {
 
+    @Id
     @Column(nullable = false, updatable = false)
     private String id;
 

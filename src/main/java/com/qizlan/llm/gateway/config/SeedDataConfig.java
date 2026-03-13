@@ -14,11 +14,16 @@ import com.qizlan.llm.gateway.persistence.repository.ProjectRepository;
 import com.qizlan.llm.gateway.persistence.repository.ProviderRepository;
 import com.qizlan.llm.gateway.gateway.security.ApiKeyTokenService;
 import org.springframework.boot.CommandLineRunner;
+import com.qizlan.llm.gateway.gateway.security.ApiKeyLookupCache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class SeedDataConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(SeedDataConfig.class);
 
     @Bean
     CommandLineRunner seedData(
@@ -29,9 +34,11 @@ public class SeedDataConfig {
             ProjectRepository projectRepository,
             ProviderRepository providerRepository,
             ModelRepository modelRepository,
-            ModelProviderMappingRepository mappingRepository
+            ModelProviderMappingRepository mappingRepository,
+            ApiKeyLookupCache apiKeyLookupCache
     ) {
         return args -> {
+            log.info("Starting seedData; existing API keys: {}", apiKeyRepository.count());
             OrganizationEntity defaultOrg = organizationRepository.findAll().stream()
                     .findFirst()
                     .orElseGet(() -> organizationRepository.save(new OrganizationEntity("Default Organization")));
@@ -51,6 +58,7 @@ public class SeedDataConfig {
                         defaultOrg,
                         defaultProject
                 ));
+                log.info("Seed API key stored: prefix={}", apiKeyTokenService.prefix(seedToken));
             }
 
             ProviderEntity openai = providerRepository.findById("openai")
@@ -93,6 +101,8 @@ public class SeedDataConfig {
             if (!mappingRepository.existsByModelIdAndProviderId("gateway-text", "google")) {
                 mappingRepository.save(ModelProviderMappingEntity.of(gatewayText, google, "gemini-2.0-flash", true, false, false, false, false, 30));
             }
+            log.info("Seed data complete; total API keys: {}", apiKeyRepository.count());
+            apiKeyLookupCache.clear();
         };
     }
 }

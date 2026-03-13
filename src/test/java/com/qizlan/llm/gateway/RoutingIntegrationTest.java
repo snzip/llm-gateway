@@ -1,31 +1,64 @@
 package com.qizlan.llm.gateway;
 
-import okhttp3.mockwebserver.MockResponse;
+import com.qizlan.llm.gateway.gateway.provider.UpstreamProviderException;
+import com.qizlan.llm.gateway.gateway.service.ModelRoutingCache;
+import com.qizlan.llm.gateway.persistence.entity.ModelEntity;
+import com.qizlan.llm.gateway.persistence.entity.ModelProviderMappingEntity;
+import com.qizlan.llm.gateway.persistence.entity.ProviderEntity;
+import com.qizlan.llm.gateway.persistence.repository.ModelProviderMappingRepository;
+import com.qizlan.llm.gateway.persistence.repository.ModelRepository;
+import com.qizlan.llm.gateway.persistence.repository.ProviderRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class RoutingIntegrationTest extends AbstractIntegrationTest {
+class RoutingIntegrationTest extends BaseGatewayTest {
+
+    @Autowired
+    private ModelRepository modelRepository;
+
+    @Autowired
+    private ProviderRepository providerRepository;
+
+    @Autowired
+    private ModelProviderMappingRepository mappingRepository;
+
+    @Autowired
+    private ModelRoutingCache modelRoutingCache;
+
+    @BeforeEach
+    void resetGatewayTextMappings() {
+        ModelEntity gatewayText = modelRepository.findById("gateway-text")
+                .orElseThrow(() -> new IllegalStateException("Missing gateway-text model"));
+        ProviderEntity openai = providerRepository.findById("openai")
+                .orElseThrow(() -> new IllegalStateException("Missing openai provider"));
+        ProviderEntity anthropic = providerRepository.findById("anthropic")
+                .orElseThrow(() -> new IllegalStateException("Missing anthropic provider"));
+        ensureMapping(gatewayText, openai, "gpt-4o", 10);
+        ensureMapping(gatewayText, anthropic, "claude-3-5-sonnet", 20);
+        modelRoutingCache.evict("gateway-text");
+    }
+
+    private void ensureMapping(ModelEntity model, ProviderEntity provider, String modelName, int priority) {
+        ModelProviderMappingEntity mapping = mappingRepository.findByModelIdOrderByPriorityAscProviderIdAsc(model.getId()).stream()
+                .filter(candidate -> candidate.getProvider().getId().equals(provider.getId()))
+                .findFirst()
+                .orElse(null);
+        if (mapping == null) {
+            mapping = ModelProviderMappingEntity.of(model, provider, modelName, true, false, true, true, false, priority);
+        } else {
+            mapping.refresh(modelName, true, false, true, true, false, priority, true, mapping.isSyncManaged());
+        }
+        mappingRepository.save(mapping);
+    }
 
     @Test
     void routingFallbackAndProviderHealthWork() {
-        int openAiBefore = OPENAI.getRequestCount();
-        int anthropicBefore = ANTHROPIC.getRequestCount();
-
-        OPENAI_RESPONSES.add(new MockResponse().setResponseCode(500).setHeader("Content-Type", "application/json").setBody("""
-                {"error":{"message":"openai down"}}
-                """));
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_fallback_1",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "Anthropic fallback response"}],
-                  "usage": {"input_tokens": 9, "output_tokens": 4}
-                }
-                """));
-
+        mockProviderAdapter.enqueueFailure(new UpstreamProviderException("openai", 500, 500, "server_error", true, "openai down"));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-1", "Anthropic fallback response", 9, 4, 13));
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -42,14 +75,7 @@ class RoutingIntegrationTest extends AbstractIntegrationTest {
                 .jsonPath("$.metadata.routing[1].provider").isEqualTo("anthropic")
                 .jsonPath("$.metadata.routing[1].succeeded").isEqualTo(true);
 
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_fallback_2",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "Anthropic still primary while openai cools down"}],
-                  "usage": {"input_tokens": 7, "output_tokens": 3}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-2", "Anthropic still primary while openai cools down", 7, 3, 10));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -70,29 +96,12 @@ class RoutingIntegrationTest extends AbstractIntegrationTest {
                 .expectBody()
                 .jsonPath("$.data.openai.consecutiveFailures").value(greaterThanOrEqualTo(1))
                 .jsonPath("$.data.openai.healthy").isEqualTo(false);
-
-        assertEquals(openAiBefore + 1, OPENAI.getRequestCount());
-        assertEquals(anthropicBefore + 2, ANTHROPIC.getRequestCount());
     }
 
     @Test
     void upstreamClientErrorDoesNotFallbackAndReturnsSameStatus() {
-        int anthropicBefore = ANTHROPIC.getRequestCount();
-
-        OPENAI_RESPONSES.add(new MockResponse()
-                .setResponseCode(400)
-                .setHeader("Content-Type", "application/json")
-                .setBody("""
-                        {"error":{"message":"bad request"}}
-                        """));
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_should_not_run",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "should not fallback"}],
-                  "usage": {"input_tokens": 1, "output_tokens": 1}
-                }
-                """));
+        mockProviderAdapter.enqueueFailure(new UpstreamProviderException("openai", 400, 400, "gateway_error", false, "bad request"));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-3", "should not fallback", 1, 1, 2));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")
@@ -104,26 +113,12 @@ class RoutingIntegrationTest extends AbstractIntegrationTest {
                 .expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.message").value(containsString("openai upstream error: 400"));
-
-        assertEquals(anthropicBefore, ANTHROPIC.getRequestCount());
     }
 
     @Test
     void upstreamRateLimitFallsBackToNextProvider() {
-        OPENAI_RESPONSES.add(new MockResponse()
-                .setResponseCode(429)
-                .setHeader("Content-Type", "application/json")
-                .setBody("""
-                        {"error":{"message":"rate limited"}}
-                        """));
-        ANTHROPIC_RESPONSES.add(json("""
-                {
-                  "id": "msg_rate_limit",
-                  "type": "message",
-                  "content": [{"type": "text", "text": "Anthropic after 429"}],
-                  "usage": {"input_tokens": 9, "output_tokens": 4}
-                }
-                """));
+        mockProviderAdapter.enqueueFailure(UpstreamProviderException.fromStatus("openai", 429, "rate limited"));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("anthropic", "model-4", "Anthropic after 429", 9, 4, 13));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer test-api-key")

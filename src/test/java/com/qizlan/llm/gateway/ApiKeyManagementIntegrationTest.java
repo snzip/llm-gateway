@@ -5,7 +5,7 @@ import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
 import static org.hamcrest.Matchers.greaterThan;
 
-class ApiKeyManagementIntegrationTest extends AbstractIntegrationTest {
+class ApiKeyManagementIntegrationTest extends BaseGatewayTest {
 
     @Test
     void controlPlaneCanCreateKeyUseGatewayAndListLogs() {
@@ -15,13 +15,7 @@ class ApiKeyManagementIntegrationTest extends AbstractIntegrationTest {
         String apiKeyId = read(keyResult, "/id");
         String rawToken = read(keyResult, "/token");
 
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id": "chatcmpl-2",
-                  "choices": [{"message": {"role": "assistant", "content": "Managed key works"}}],
-                  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-                }
-                """));
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "Managed key works", 10, 5, 15));
 
         webTestClient.post().uri("/v1/chat/completions")
                 .header("Authorization", "Bearer " + rawToken)

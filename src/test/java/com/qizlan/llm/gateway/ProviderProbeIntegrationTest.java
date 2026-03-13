@@ -1,23 +1,18 @@
 package com.qizlan.llm.gateway;
 
+import com.qizlan.llm.gateway.gateway.provider.ProviderModelDescriptor;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class ProviderProbeIntegrationTest extends AbstractIntegrationTest {
+class ProviderProbeIntegrationTest extends BaseGatewayTest {
 
     @Test
     void providerProbeEndpointsReturnHealthAndHistory() {
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "data": [{"id":"gpt-4o"}]
-                }
-                """));
-        OPENAI_RESPONSES.add(json("""
-                {
-                  "id":"chatcmpl-probe",
-                  "choices":[{"message":{"role":"assistant","content":"pong"}}],
-                  "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-                }
-                """));
+        List<ProviderModelDescriptor> descriptors = List.of(
+                new ProviderModelDescriptor("openai", "gpt-4o", "gpt-4o", "GPT-4o", "gpt", true, false, false, true, false, 1, 8192, 3, 3)
+        );
+        mockProviderAdapter.enqueueModelList(descriptors);
+        mockProviderAdapter.enqueueCompletionResponse(mockResponse("openai", "gpt-4o", "pong", 1, 1, 2));
 
         webTestClient.post().uri(uriBuilder -> uriBuilder.path("/internal/providers/probe").queryParam("provider", "openai").build())
                 .exchange()

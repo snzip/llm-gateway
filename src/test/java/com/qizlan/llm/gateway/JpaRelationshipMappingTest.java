@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class JpaRelationshipMappingTest extends AbstractIntegrationTest {
+class JpaRelationshipMappingTest extends BaseGatewayTest {
 
     @Autowired
     private OrganizationRepository organizationRepository;

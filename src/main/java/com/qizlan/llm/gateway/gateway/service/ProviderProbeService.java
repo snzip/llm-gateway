@@ -2,6 +2,7 @@ package com.qizlan.llm.gateway.gateway.service;
 
 import com.qizlan.llm.gateway.config.GatewayProperties;
 import com.qizlan.llm.gateway.gateway.dto.ChatCompletionRequest;
+import com.qizlan.llm.gateway.gateway.provider.MockProviderAdapter;
 import com.qizlan.llm.gateway.gateway.provider.ProviderAdapter;
 import com.qizlan.llm.gateway.gateway.provider.ProviderChatResult;
 import com.qizlan.llm.gateway.gateway.provider.ProviderModelDescriptor;
@@ -23,13 +24,17 @@ public class ProviderProbeService {
     private final ProviderProbeHistoryRepository providerProbeHistoryRepository;
     private final GatewayProperties properties;
     private final GatewayMetricsService gatewayMetricsService;
+    private final MockProviderAdapter mockProviderAdapter;
+    private final String providerMode;
 
-    public ProviderProbeService(List<ProviderAdapter> providerAdapters, ProviderHealthService providerHealthService, ProviderProbeHistoryRepository providerProbeHistoryRepository, GatewayProperties properties, GatewayMetricsService gatewayMetricsService) {
+    public ProviderProbeService(List<ProviderAdapter> providerAdapters, ProviderHealthService providerHealthService, ProviderProbeHistoryRepository providerProbeHistoryRepository, GatewayProperties properties, GatewayMetricsService gatewayMetricsService, MockProviderAdapter mockProviderAdapter) {
         this.providerAdapters = providerAdapters;
         this.providerHealthService = providerHealthService;
         this.providerProbeHistoryRepository = providerProbeHistoryRepository;
         this.properties = properties;
         this.gatewayMetricsService = gatewayMetricsService;
+        this.mockProviderAdapter = mockProviderAdapter;
+        this.providerMode = properties.providers().mode();
     }
 
     @Scheduled(fixedDelayString = "${llm.gateway.probe.fixed-delay-millis:300000}")
@@ -52,10 +57,7 @@ public class ProviderProbeService {
     }
 
     public Map<String, Object> probeProvider(String providerId) {
-        ProviderAdapter adapter = providerAdapters.stream()
-                .filter(candidate -> candidate.providerId().equals(providerId))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown provider: " + providerId));
+        ProviderAdapter adapter = resolveAdapter(providerId);
         long startedAt = System.currentTimeMillis();
         String probeModel = "unknown";
         try {
@@ -105,5 +107,15 @@ public class ProviderProbeService {
             case "google" -> properties.providers().google().enabled();
             default -> false;
         };
+    }
+
+    private ProviderAdapter resolveAdapter(String providerId) {
+        if ("mock".equalsIgnoreCase(providerMode)) {
+            return mockProviderAdapter;
+        }
+        return providerAdapters.stream()
+                .filter(candidate -> candidate.providerId().equals(providerId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown provider: " + providerId));
     }
 }
