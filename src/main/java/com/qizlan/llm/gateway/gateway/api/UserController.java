@@ -7,8 +7,11 @@ import com.qizlan.llm.gateway.persistence.entity.PasskeyEntity;
 import com.qizlan.llm.gateway.persistence.entity.UserEntity;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+
+import java.util.HashMap;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -40,8 +43,20 @@ public class UserController {
 
     @GetMapping("/user/me")
     @io.swagger.v3.oas.annotations.Operation(summary = "Get current user", description = "Returns lightweight profile metadata for the authenticated user.")
-    public Mono<Map<String, Object>> me(ServerWebExchange exchange) {
-        return Mono.fromCallable(() -> Map.of("data", mapUser(currentUser(exchange))));
+//    public Mono<Map<String, Object>> me(ServerWebExchange exchange) {
+//        return Mono.fromCallable(() -> Map.of("data", mapUser(currentUser(exchange))));
+//    }
+    public Mono<Map<String, Object>> me(@AuthenticationPrincipal Object currentUser) {
+        if (currentUser == null) {
+            // 如果未登录，明确返回 401，不要挂起
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthenticated"));
+        }
+
+        // 使用 HashMap 避免 Map.of 的空指针陷阱
+        Map<String, Object> response = new HashMap<>();
+        response.put("data", mapUser((UserEntity) currentUser));
+
+        return Mono.just(response);
     }
 
     @PatchMapping("/user/me")

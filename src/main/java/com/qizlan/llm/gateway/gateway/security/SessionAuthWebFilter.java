@@ -3,6 +3,7 @@ package com.qizlan.llm.gateway.gateway.security;
 import com.qizlan.llm.gateway.gateway.service.SessionService;
 import com.qizlan.llm.gateway.persistence.entity.SessionEntity;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -35,6 +36,9 @@ public class SessionAuthWebFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
+        if (exchange.getRequest().getMethod() == HttpMethod.OPTIONS) {
+            return chain.filter(exchange);
+        }
         if (!requiresSession(path, exchange)) {
             return chain.filter(exchange);
         }

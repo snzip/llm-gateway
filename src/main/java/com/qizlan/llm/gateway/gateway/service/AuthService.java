@@ -41,4 +41,12 @@ public class AuthService {
     public void logout(String token) {
         sessionService.validate(token).ifPresent(sessionService::revoke);
     }
+
+    public Map<String, Object> verifyToken(String token) {
+        var session = sessionService.validate(token);
+        if (session.isEmpty()) {
+            return Map.of();
+        }
+        return Map.of("expires_at", session.get().getExpiresAt().toString());
+    }
 }
