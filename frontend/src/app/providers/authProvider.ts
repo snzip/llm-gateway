@@ -45,24 +45,24 @@ export const authProvider: AuthProvider = {
       return Promise.resolve({ authenticated: false });
     }
 
-    // 检查缓存，避免频繁调用后端
-    const now = Date.now();
-    if (lastCheckResult !== null && (now - lastCheckTime) < CHECK_CACHE_TTL) {
-      console.debug("authProvider.check: using cached result", lastCheckResult);
-      return Promise.resolve({ authenticated: Boolean(lastCheckResult) });
-    }
+    // // 检查缓存，避免频繁调用后端
+    // const now = Date.now();
+    // if (lastCheckResult !== null && (now - lastCheckTime) < CHECK_CACHE_TTL) {
+    //   console.debug("authProvider.check: using cached result", lastCheckResult);
+    //   return Promise.resolve({ authenticated: Boolean(lastCheckResult) });
+    // }
 
     // 调用后端验证 token 有效性
     try {
       const response = await axiosInstance.get("/auth/verify");
       console.debug("authProvider.check: token is valid", response.data);
       lastCheckResult = true;
-      lastCheckTime = now;
+      // lastCheckTime = now;
       return Promise.resolve({ authenticated: true });
     } catch (error: any) {
       console.debug("authProvider.check: token verification failed", error);
       lastCheckResult = false;
-      lastCheckTime = now;
+      // lastCheckTime = now;
       if (error?.response?.status === 401) {
         setAccessToken(null);  // 清除无效 token
       }

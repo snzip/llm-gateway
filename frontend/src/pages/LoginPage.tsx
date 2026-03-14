@@ -1,7 +1,7 @@
 import { useLogin } from "@refinedev/core";
 import { Button, Card, Form, Input, Space, Typography, Alert } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 const { Title, Text } = Typography;
 
