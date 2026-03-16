@@ -2,6 +2,8 @@
 
 `llm-gateway` 是一个基于 Java 21 / Spring Boot 的 LLM Gateway 与控制面实现。
 
+License: Apache-2.0
+
 English version: [README.md](README.md)
 
 项目当前面向的平台场景包括：

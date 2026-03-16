@@ -2,6 +2,8 @@
 
 `llm-gateway` is a Java 21 / Spring Boot implementation of an enterprise LLM gateway and control plane.
 
+License: Apache-2.0
+
 中文版本: [readme_cn.md](README_cn.md)
 
 The project targets AI platform scenarios such as:
