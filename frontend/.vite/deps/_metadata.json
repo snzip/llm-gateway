@@ -1,0 +1,94 @@
+{
+  "hash": "6596d660",
+  "configHash": "6eb67d73",
+  "lockfileHash": "40a295ec",
+  "browserHash": "d8bd87e9",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/.pnpm/react@18.3.1/node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "039c4f5a",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/.pnpm/react@18.3.1/node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "aa0bf786",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "95fb41ee",
+      "needsInterop": true
+    },
+    "@refinedev/core": {
+      "src": "../../node_modules/.pnpm/@refinedev+core@5.0.10_@tanstack+react-query@5.90.21_react@18.3.1__@types+react-dom@18._b4bf53f9d235b80db4f6fa8676bddccd/node_modules/@refinedev/core/dist/index.mjs",
+      "file": "@refinedev_core.js",
+      "fileHash": "2146b7ed",
+      "needsInterop": false
+    },
+    "@refinedev/antd": {
+      "src": "../../node_modules/.pnpm/@refinedev+antd@6.0.3_@refinedev+core@5.0.10_@tanstack+react-query@5.90.21_react@18.3.1_0a1dc82d8922ad8d94e9af35aeb5797a/node_modules/@refinedev/antd/dist/index.mjs",
+      "file": "@refinedev_antd.js",
+      "fileHash": "3a0930d8",
+      "needsInterop": false
+    },
+    "antd": {
+      "src": "../../node_modules/.pnpm/antd@5.29.3_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/antd/es/index.js",
+      "file": "antd.js",
+      "fileHash": "ee69f35e",
+      "needsInterop": false
+    },
+    "@refinedev/react-router": {
+      "src": "../../node_modules/.pnpm/@refinedev+react-router@2.0.4_@refinedev+core@5.0.10_@tanstack+react-query@5.90.21_reac_f6d9c2e9a809ca0743a044f607ba4ae9/node_modules/@refinedev/react-router/dist/index.mjs",
+      "file": "@refinedev_react-router.js",
+      "fileHash": "26fe1f5c",
+      "needsInterop": false
+    },
+    "react-router": {
+      "src": "../../node_modules/.pnpm/react-router@7.13.1_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/react-router/dist/development/index.mjs",
+      "file": "react-router.js",
+      "fileHash": "eb95fdbb",
+      "needsInterop": false
+    },
+    "@ant-design/icons": {
+      "src": "../../node_modules/.pnpm/@ant-design+icons@5.6.1_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/@ant-design/icons/es/index.js",
+      "file": "@ant-design_icons.js",
+      "fileHash": "5a2065bf",
+      "needsInterop": false
+    },
+    "axios": {
+      "src": "../../node_modules/.pnpm/axios@1.13.6/node_modules/axios/index.js",
+      "file": "axios.js",
+      "fileHash": "abd1ecef",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-2VRJ2H2A": {
+      "file": "chunk-2VRJ2H2A.js"
+    },
+    "chunk-AVM3CYGQ": {
+      "file": "chunk-AVM3CYGQ.js"
+    },
+    "chunk-BRRNTQ6J": {
+      "file": "chunk-BRRNTQ6J.js"
+    },
+    "chunk-NML3DJJF": {
+      "file": "chunk-NML3DJJF.js"
+    },
+    "chunk-NY5GDKLQ": {
+      "file": "chunk-NY5GDKLQ.js"
+    },
+    "chunk-SBD4AT36": {
+      "file": "chunk-SBD4AT36.js"
+    },
+    "chunk-EGB4RHLY": {
+      "file": "chunk-EGB4RHLY.js"
+    },
+    "chunk-OL46QLBJ": {
+      "file": "chunk-OL46QLBJ.js"
+    }
+  }
+}

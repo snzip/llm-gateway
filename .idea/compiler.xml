@@ -6,9 +6,18 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="gateway" />
+        <module name="gateway-app" />
+        <module name="gateway-routing" />
+        <module name="gateway-provider-spi" />
+        <module name="gateway-common" />
+        <module name="gateway-contracts" />
+        <module name="gateway-persistence" />
+        <module name="control-plane" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="gateway" target="19" />
+    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">

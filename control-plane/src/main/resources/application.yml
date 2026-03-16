@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: control-plane
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:mem:llmgateway-control-plane;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.h2.Driver}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: ${SERVER_PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /json
+  swagger-ui:
+    path: /docs
+
+llm:
+  gateway:
+    routing:
+      failure-threshold: ${LLM_GATEWAY_ROUTING_FAILURE_THRESHOLD:1}
+      cooldown-millis: ${LLM_GATEWAY_ROUTING_COOLDOWN_MILLIS:30000}
+      projection-refresh-check-millis: ${LLM_GATEWAY_ROUTING_PROJECTION_REFRESH_CHECK_MILLIS:2000}
+    aggregation:
+      enabled: ${LLM_GATEWAY_AGGREGATION_ENABLED:false}
+      fixed-delay-millis: ${LLM_GATEWAY_AGGREGATION_FIXED_DELAY_MILLIS:900000}
+      cache-ttl-millis: ${LLM_GATEWAY_AGGREGATION_CACHE_TTL_MILLIS:30000}
+      retention-days: ${LLM_GATEWAY_AGGREGATION_RETENTION_DAYS:30}
+    auth:
+      seed-user-email: ${LLM_GATEWAY_AUTH_SEED_EMAIL:admin@example.com}
+      seed-user-password: ${LLM_GATEWAY_AUTH_SEED_PASSWORD:password}
+      seed-user-name: ${LLM_GATEWAY_AUTH_SEED_NAME:Administrator}
