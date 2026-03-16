@@ -1,6 +1,6 @@
-# llmgatejava
+# llm-gateway
 
-`llmgatejava` is a Java 21 / Spring Boot implementation of an enterprise LLM gateway and control plane.
+`llm-gateway` is a Java 21 / Spring Boot implementation of an enterprise LLM gateway and control plane.
 
 中文版本: [readme_cn.md](/Volumes/hpssd/projects/lab/others/@llmgatejava/readme_cn.md)
 

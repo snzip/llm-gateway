@@ -1,6 +1,6 @@
-# llmgatejava
+# llm-gateway
 
-`llmgatejava` 是一个基于 Java 21 / Spring Boot 的 LLM Gateway 与控制面实现。
+`llm-gateway` 是一个基于 Java 21 / Spring Boot 的 LLM Gateway 与控制面实现。
 
 English version: [README.md](/Volumes/hpssd/projects/lab/others/@llmgatejava/README.md)
 
